@@ -1,0 +1,794 @@
+/* ==========================================================================
+   JavaScript Application Logic: AI Minutes Generator
+   ========================================================================== */
+
+document.addEventListener('DOMContentLoaded', () => {
+    // ---------------------------------------------------------
+    // 1. State Variables & Elements
+    // ---------------------------------------------------------
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let audioBlob = null;
+    let selectedFile = null;
+    let recordTimerInterval = null;
+    let recordSeconds = 0;
+    
+    // Audio Context for Visualizer
+    let audioCtx = null;
+    let analyser = null;
+    let sourceNode = null;
+    let visualizerAnimId = null;
+    let streamRef = null;
+
+    // DOM Elements
+    const elements = {
+        // API Status
+        apiStatusBanner: document.getElementById('api-status-banner'),
+        
+        // Navigation Tabs
+        tabBtns: document.querySelectorAll('.tab-btn'),
+        tabPanes: document.querySelectorAll('.tab-pane'),
+        
+        // Recorder
+        timerDisplay: document.getElementById('record-timer'),
+        visualizerPulse: document.getElementById('visualizer-pulse'),
+        visualizerCanvas: document.getElementById('audio-visualizer'),
+        recorderStatus: document.getElementById('recorder-status'),
+        btnRecordStart: document.getElementById('btn-record-start'),
+        btnRecordPause: document.getElementById('btn-record-pause'),
+        btnRecordStop: document.getElementById('btn-record-stop'),
+        
+        // Upload
+        dropZone: document.getElementById('drop-zone'),
+        audioFileInput: document.getElementById('audio-file-input'),
+        selectedFileInfo: document.getElementById('selected-file-info'),
+        selectedFileName: document.getElementById('selected-file-name'),
+        selectedFileSize: document.getElementById('selected-file-size'),
+        btnClearFile: document.getElementById('btn-clear-file'),
+        
+        // Options
+        templateSelect: document.getElementById('template-select'),
+        customInstruction: document.getElementById('custom-instruction'),
+        btnProcess: document.getElementById('btn-process'),
+        
+        // Loading & Overlay
+        loadingOverlay: document.getElementById('loading-overlay'),
+        loadingText: document.getElementById('loading-text'),
+        progressBar: document.getElementById('progress-bar'),
+        
+        // Output result
+        resultTabBtns: document.querySelectorAll('.result-tab-btn'),
+        resultPanes: document.querySelectorAll('.result-pane'),
+        summaryPlaceholder: document.getElementById('summary-placeholder'),
+        summaryRendered: document.getElementById('summary-rendered'),
+        transcriptPlaceholder: document.getElementById('transcript-placeholder'),
+        transcriptRaw: document.getElementById('transcript-raw'),
+        btnCopy: document.getElementById('btn-copy'),
+        btnDownload: document.getElementById('btn-download'),
+        
+        // Settings Modal
+        btnSettingsToggle: document.getElementById('btn-settings-toggle'),
+        settingsModal: document.getElementById('settings-modal'),
+        btnSettingsClose: document.getElementById('btn-settings-close'),
+        openaiApiKey: document.getElementById('openai-api-key'),
+        geminiApiKey: document.getElementById('gemini-api-key'),
+        btnSettingsSave: document.getElementById('btn-settings-save'),
+        toggleVisibilityBtns: document.querySelectorAll('.btn-toggle-visibility')
+    };
+
+    // ---------------------------------------------------------
+    // 2. API Key Management (LocalStorage)
+    // ---------------------------------------------------------
+    function getApiKeys() {
+        return {
+            openai: localStorage.getItem('openai_api_key') || '',
+            gemini: localStorage.getItem('gemini_api_key') || ''
+        };
+    }
+
+    function checkApiKeysConfigured() {
+        const keys = getApiKeys();
+        
+        // Demomode: keys containing "demo" can also bypass for testing
+        const isConfigured = keys.openai.trim() !== '' && keys.gemini.trim() !== '';
+        
+        if (isConfigured) {
+            elements.apiStatusBanner.classList.add('hidden');
+            elements.apiStatusBanner.classList.remove('warning');
+        } else {
+            elements.apiStatusBanner.classList.remove('hidden');
+            elements.apiStatusBanner.classList.add('warning');
+            elements.apiStatusBanner.querySelector('span').innerText = 
+                'APIキーが設定されていません。右上の設定アイコンから登録してください。（またはデモ実行可能です）';
+        }
+        updateProcessButtonState();
+    }
+
+    function loadSavedKeys() {
+        const keys = getApiKeys();
+        elements.openaiApiKey.value = keys.openai;
+        elements.geminiApiKey.value = keys.gemini;
+        checkApiKeysConfigured();
+    }
+
+    // Toggle password visibility
+    elements.toggleVisibilityBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetId = btn.getAttribute('data-target');
+            const targetInput = document.getElementById(targetId);
+            const icon = btn.querySelector('i');
+            
+            if (targetInput.type === 'password') {
+                targetInput.type = 'text';
+                icon.setAttribute('data-lucide', 'eye-off');
+            } else {
+                targetInput.type = 'password';
+                icon.setAttribute('data-lucide', 'eye');
+            }
+            lucide.createImages();
+        });
+    });
+
+    // Modal Actions
+    elements.btnSettingsToggle.addEventListener('click', () => {
+        loadSavedKeys();
+        elements.settingsModal.classList.remove('hidden');
+    });
+
+    elements.btnSettingsClose.addEventListener('click', () => {
+        elements.settingsModal.classList.add('hidden');
+    });
+
+    elements.btnSettingsSave.addEventListener('click', () => {
+        localStorage.setItem('openai_api_key', elements.openaiApiKey.value.trim());
+        localStorage.setItem('gemini_api_key', elements.geminiApiKey.value.trim());
+        checkApiKeysConfigured();
+        elements.settingsModal.classList.add('hidden');
+    });
+
+    // Close modal when clicking outside content
+    elements.settingsModal.addEventListener('click', (e) => {
+        if (e.target === elements.settingsModal) {
+            elements.settingsModal.classList.add('hidden');
+        }
+    });
+
+    // ---------------------------------------------------------
+    // 3. Navigation Tabs
+    // ---------------------------------------------------------
+    elements.tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetTab = btn.getAttribute('data-tab');
+            
+            // Switch buttons
+            elements.tabBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            
+            // Switch panes
+            elements.tabPanes.forEach(pane => pane.classList.remove('active'));
+            document.getElementById(targetTab).classList.add('active');
+            
+            // Stop recorder if switching tabs during recording
+            if (targetTab !== 'tab-record' && mediaRecorder && mediaRecorder.state !== 'inactive') {
+                stopRecording();
+            }
+            
+            updateProcessButtonState();
+        });
+    });
+
+    // Output Result Tabs
+    elements.resultTabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetPane = btn.getAttribute('data-result-tab');
+            
+            elements.resultTabBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            
+            elements.resultPanes.forEach(p => p.classList.remove('active'));
+            document.getElementById(targetPane).classList.add('active');
+        });
+    });
+
+    // ---------------------------------------------------------
+    // 4. Input State & UI updates
+    // ---------------------------------------------------------
+    function updateProcessButtonState() {
+        const activeTab = document.querySelector('.tab-btn.active').getAttribute('data-tab');
+        let hasInput = false;
+        
+        if (activeTab === 'tab-record') {
+            hasInput = audioBlob !== null;
+        } else if (activeTab === 'tab-upload') {
+            hasInput = selectedFile !== null;
+        }
+        
+        // We allow processing even if keys aren't set, in which case we trigger "Demo Mode"
+        elements.btnProcess.disabled = !hasInput;
+    }
+
+    // ---------------------------------------------------------
+    // 5. Microphone Recording (Web Audio API)
+    // ---------------------------------------------------------
+    async function startRecording() {
+        audioChunks = [];
+        audioBlob = null;
+        updateProcessButtonState();
+        
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            streamRef = stream;
+            
+            // Set up Audio Context and Visualizer
+            setupVisualizer(stream);
+            
+            // Find supported MIME Type (Priority: audio/webm, audio/ogg, audio/mp4, audio/wav)
+            let options = {};
+            const types = [
+                'audio/webm;codecs=opus',
+                'audio/ogg;codecs=opus',
+                'audio/mp4',
+                'audio/webm',
+                'audio/wav'
+            ];
+            
+            for (const type of types) {
+                if (MediaRecorder.isTypeSupported(type)) {
+                    options = { mimeType: type };
+                    break;
+                }
+            }
+            
+            mediaRecorder = new MediaRecorder(stream, options);
+            
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    audioChunks.push(event.data);
+                }
+            };
+            
+            mediaRecorder.onstop = () => {
+                audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/wav' });
+                elements.recorderStatus.innerText = `録音が完了しました (ファイルサイズ: ${(audioBlob.size / 1024 / 1024).toFixed(2)} MB)`;
+                
+                // Cleanup stream and visualizer
+                if (streamRef) {
+                    streamRef.getTracks().forEach(track => track.stop());
+                }
+                cancelAnimationFrame(visualizerAnimId);
+                clearCanvas();
+                
+                elements.visualizerPulse.classList.remove('recording');
+                elements.btnRecordStart.classList.remove('hidden');
+                elements.btnRecordPause.classList.add('hidden');
+                elements.btnRecordStop.classList.add('hidden');
+                
+                updateProcessButtonState();
+            };
+            
+            mediaRecorder.start(1000); // chunk every 1 sec
+            elements.visualizerPulse.classList.add('recording');
+            
+            // Start Timer
+            recordSeconds = 0;
+            updateTimerDisplay();
+            elements.recorderStatus.innerText = '録音中...';
+            
+            elements.btnRecordStart.classList.add('hidden');
+            elements.btnRecordPause.classList.remove('hidden');
+            elements.btnRecordStop.classList.remove('hidden');
+            
+            recordTimerInterval = setInterval(() => {
+                recordSeconds++;
+                updateTimerDisplay();
+            }, 1000);
+            
+        } catch (err) {
+            console.error('マイクのアクセスに失敗しました:', err);
+            elements.recorderStatus.innerText = 'マイクの使用許可がないか、接続エラーが発生しました。';
+            alert('マイクへのアクセスを許可してください。スマホの設定またはブラウザのアドレスバー横の鍵アイコンから変更できます。');
+        }
+    }
+
+    function pauseRecording() {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.pause();
+            clearInterval(recordTimerInterval);
+            elements.recorderStatus.innerText = '録音を一時停止中';
+            elements.btnRecordPause.querySelector('i').setAttribute('data-lucide', 'play');
+            elements.visualizerPulse.classList.remove('recording');
+            lucide.createImages();
+        } else if (mediaRecorder && mediaRecorder.state === 'paused') {
+            mediaRecorder.resume();
+            elements.recorderStatus.innerText = '録音中...';
+            elements.btnRecordPause.querySelector('i').setAttribute('data-lucide', 'pause');
+            elements.visualizerPulse.classList.add('recording');
+            lucide.createImages();
+            
+            recordTimerInterval = setInterval(() => {
+                recordSeconds++;
+                updateTimerDisplay();
+            }, 1000);
+        }
+    }
+
+    function stopRecording() {
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+            clearInterval(recordTimerInterval);
+        }
+    }
+
+    function updateTimerDisplay() {
+        const mins = Math.floor(recordSeconds / 60).toString().padStart(2, '0');
+        const secs = (recordSeconds % 60).toString().padStart(2, '0');
+        elements.timerDisplay.innerText = `${mins}:${secs}`;
+    }
+
+    // ---------------------------------------------------------
+    // 6. Audio Visualizer (Canvas Rendering)
+    // ---------------------------------------------------------
+    function setupVisualizer(stream) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioCtx.createAnalyser();
+        sourceNode = audioCtx.createMediaStreamSource(stream);
+        sourceNode.connect(analyser);
+        
+        analyser.fftSize = 256;
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        
+        const canvas = elements.visualizerCanvas;
+        const canvasCtx = canvas.getContext('2d');
+        
+        // Set canvas physical dimensions matching CSS layout
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+        
+        function draw() {
+            visualizerAnimId = requestAnimationFrame(draw);
+            analyser.getByteFrequencyData(dataArray);
+            
+            canvasCtx.fillStyle = 'rgba(9, 13, 22, 0.2)'; // trail effect
+            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            const barWidth = (canvas.width / bufferLength) * 1.5;
+            let barHeight;
+            let x = 0;
+            
+            for(let i = 0; i < bufferLength; i++) {
+                barHeight = dataArray[i] * 0.45; // scale height
+                
+                // Beautiful neon gradient for frequency bars
+                const grad = canvasCtx.createLinearGradient(0, canvas.height, 0, 0);
+                grad.addColorStop(0, '#3b82f6');
+                grad.addColorStop(0.5, '#8b5cf6');
+                grad.addColorStop(1, '#d946ef');
+                
+                canvasCtx.fillStyle = grad;
+                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
+                
+                x += barWidth;
+            }
+        }
+        
+        draw();
+    }
+
+    function clearCanvas() {
+        const canvas = elements.visualizerCanvas;
+        const canvasCtx = canvas.getContext('2d');
+        canvasCtx.fillStyle = '#090d16';
+        canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // Connect control clicks
+    elements.btnRecordStart.addEventListener('click', startRecording);
+    elements.btnRecordPause.addEventListener('click', pauseRecording);
+    elements.btnRecordStop.addEventListener('click', stopRecording);
+
+    // ---------------------------------------------------------
+    // 7. File Upload (Drag & Drop)
+    // ---------------------------------------------------------
+    const preventDefaults = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        elements.dropZone.addEventListener(eventName, preventDefaults, false);
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        elements.dropZone.addEventListener(eventName, () => elements.dropZone.classList.add('dragover'), false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        elements.dropZone.addEventListener(eventName, () => elements.dropZone.classList.remove('dragover'), false);
+    });
+
+    elements.dropZone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        if (files.length > 0) {
+            handleSelectedFile(files[0]);
+        }
+    });
+
+    elements.dropZone.addEventListener('click', () => {
+        elements.audioFileInput.click();
+    });
+
+    elements.audioFileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleSelectedFile(e.target.files[0]);
+        }
+    });
+
+    function handleSelectedFile(file) {
+        // Validate it's an audio file
+        if (!file.type.startsWith('audio/') && !file.name.endsWith('.mp3') && !file.name.endsWith('.m4a') && !file.name.endsWith('.wav') && !file.name.endsWith('.webm')) {
+            alert('音声ファイル（mp3, wav, m4a, webmなど）を選択してください。');
+            return;
+        }
+
+        // Limit size to 25MB (OpenAI Whisper limit)
+        const maxSize = 25 * 1024 * 1024;
+        if (file.size > maxSize) {
+            alert('ファイルサイズが大きすぎます (最大25MB)。');
+            return;
+        }
+
+        selectedFile = file;
+        elements.selectedFileName.innerText = file.name;
+        elements.selectedFileSize.innerText = `${(file.size / 1024 / 1024).toFixed(2)} MB`;
+        
+        elements.dropZone.classList.add('hidden');
+        elements.selectedFileInfo.classList.remove('hidden');
+        
+        updateProcessButtonState();
+    }
+
+    elements.btnClearFile.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectedFile = null;
+        elements.audioFileInput.value = '';
+        elements.dropZone.classList.remove('hidden');
+        elements.selectedFileInfo.classList.add('hidden');
+        updateProcessButtonState();
+    });
+
+    // ---------------------------------------------------------
+    // 8. Processing & API Integrations
+    // ---------------------------------------------------------
+    elements.btnProcess.addEventListener('click', async () => {
+        const keys = getApiKeys();
+        
+        // Determine whether to run in Demo Mode or Real Mode
+        const isDemoMode = keys.openai.trim() === '' || keys.gemini.trim() === '';
+        
+        if (isDemoMode) {
+            const confirmDemo = confirm(
+                "APIキーが設定されていないか不足しています。\n" +
+                "代わりに「デモシミュレーションモード」で議事録生成を試しますか？\n" +
+                "（API通信は行わず、自動的に高品質なサンプルの議事録を生成してUIの動きを体験できます。）"
+            );
+            if (!confirmDemo) return;
+            
+            runDemoProcess();
+            return;
+        }
+
+        // Start Real API Process
+        runRealProcess(keys);
+    });
+
+    // Real API Request Execution
+    async function runRealProcess(keys) {
+        showLoading(true, "マイク音声 / ファイルを確認しています...");
+        setProgressBar(10);
+        
+        let audioFileToUpload = null;
+        const activeTab = document.querySelector('.tab-btn.active').getAttribute('data-tab');
+        
+        if (activeTab === 'tab-record') {
+            if (!audioBlob) {
+                alert('録音データが見つかりません。');
+                showLoading(false);
+                return;
+            }
+            
+            // Determine dynamic extension based on mimeType
+            let extension = "wav";
+            if (mediaRecorder && mediaRecorder.mimeType) {
+                if (mediaRecorder.mimeType.includes("mp4")) extension = "m4a";
+                else if (mediaRecorder.mimeType.includes("webm")) extension = "webm";
+                else if (mediaRecorder.mimeType.includes("ogg")) extension = "ogg";
+            }
+            
+            audioFileToUpload = new File([audioBlob], `recording.${extension}`, { type: audioBlob.type });
+        } else {
+            if (!selectedFile) {
+                alert('アップロードする音声ファイルが選択されていません。');
+                showLoading(false);
+                return;
+            }
+            audioFileToUpload = selectedFile;
+        }
+
+        try {
+            // STEP 1: OpenAI Whisper API - Speech-to-Text
+            showLoading(true, "音声データをテキストに文字起こししています（Whisper API）...");
+            setProgressBar(30);
+
+            const formData = new FormData();
+            formData.append("file", audioFileToUpload);
+            formData.append("model", "whisper-1");
+            formData.append("language", "ja");
+
+            const whisperResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${keys.openai}`
+                },
+                body: formData
+            });
+
+            if (!whisperResponse.ok) {
+                const errData = await whisperResponse.json().catch(() => ({}));
+                throw new Error(errData.error?.message || `Whisper API エラー (ステータス: ${whisperResponse.status})`);
+            }
+
+            const whisperData = await whisperResponse.json();
+            const rawTranscript = whisperData.text;
+
+            if (!rawTranscript || rawTranscript.trim() === '') {
+                throw new Error("文字起こしデータが空です。音声が聞き取れなかった可能性があります。");
+            }
+
+            setProgressBar(60);
+
+            // STEP 2: Gemini API - Summarization
+            showLoading(true, "AIによる議事録の要約および構造化を実行しています（Gemini API）...");
+            setProgressBar(75);
+
+            // Template prompt logic
+            const template = elements.templateSelect.value;
+            const customIns = elements.customInstruction.value.trim();
+            
+            const prompt = buildPrompt(template, customIns, rawTranscript);
+
+            const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${keys.gemini}`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [{ text: prompt }]
+                    }]
+                })
+            });
+
+            if (!geminiResponse.ok) {
+                const errData = await geminiResponse.json().catch(() => ({}));
+                throw new Error(errData.error?.message || `Gemini API エラー (ステータス: ${geminiResponse.status})`);
+            }
+
+            const geminiData = await geminiResponse.json();
+            
+            // Extract response text
+            let summaryMarkdown = "";
+            try {
+                summaryMarkdown = geminiData.candidates[0].content.parts[0].text;
+            } catch (e) {
+                throw new Error("Gemini から有効な要約結果が得られませんでした。");
+            }
+
+            setProgressBar(100);
+            
+            // Display Results
+            displayResults(rawTranscript, summaryMarkdown);
+            
+        } catch (error) {
+            console.error("処理エラー:", error);
+            alert(`エラーが発生しました:\n${error.message}`);
+        } finally {
+            showLoading(false);
+        }
+    }
+
+    // Demo Mode Simulation
+    function runDemoProcess() {
+        showLoading(true, "文字起こしを解析中 (デモモード)...");
+        setProgressBar(15);
+        
+        setTimeout(() => {
+            setProgressBar(45);
+            showLoading(true, "議論の要点を抽出中 (デモモード)...");
+            
+            setTimeout(() => {
+                setProgressBar(75);
+                showLoading(true, "要約テキストを整形中 (デモモード)...");
+                
+                setTimeout(() => {
+                    setProgressBar(100);
+                    
+                    const demoTranscript = 
+                        "山田：それでは定例会議を始めます。本日の議題は、新しい測定スケジュール管理アプリの開発進捗と、今後のデプロイ計画についてです。まずは進捗からお願いします。\n" +
+                        "鈴木：はい、フロントエンドの主要画面デザインはCSSでのスタイリング含め、ほぼ8割程度完成しています。ただ、スマホ対応でのマイク録音連携部分で、iOS Safariのみマイク入力がうまく取得できないバグが発見され、その対応に手こずっています。\n" +
+                        "佐藤：iOSのSafariはWeb Audio APIの仕様が他ブラウザと少し異なっていて、ユーザーインタラクションの直後にAudioContextを開始しないとミュートされる制約があります。そこは私の方で過去に対応コードを書いたことがあるので、鈴木さんを手伝います。今日の午後、2人でコードレビューをしながら修正しましょう。\n" +
+                        "鈴木：ありがとうございます！助かります。それが解決すれば、週明けの月曜日にはテスト環境にデプロイできる予定です。\n" +
+                        "山田：了解しました。では、佐藤さんと鈴木さんでそのバグ修正をお願いします。デプロイ先はGitHub Pagesで問題ないですか？\n" +
+                        "鈴木：はい、静的フロントエンドなのでGitHub Pagesでデプロイ可能です。ただ、APIキーをどう管理するかですね。各自がローカルストレージに入力するアプローチで進めます。\n" +
+                        "山田：それで進めましょう。では、次回は来週水曜日に進捗確認を行います。他に議題はありますか？ なければこれで終わります。お疲れ様でした。";
+                    
+                    const demoSummary = 
+                        "# 会議議事録：開発定例会 (デモ要約)\n\n" +
+                        "## 1. 会議概要\n" +
+                        "- **会議名**: 測定スケジュール管理アプリ開発定例会\n" +
+                        "- **出席者**: 山田 (ファシリテーター), 鈴木 (開発担当), 佐藤 (技術サポート)\n\n" +
+                        "## 2. 決定事項\n" +
+                        "- **デプロイ方法**: 静的フロントエンドとして **GitHub Pages** にデプロイする。\n" +
+                        "- **APIキー管理**: セキュリティ確保のため、利用者が自身のブラウザ（LocalStorage）にキーを入力するアプローチを採用する。\n\n" +
+                        "## 3. 議題と主な議論\n" +
+                        "### 議題A: アプリ開発進捗とバグ対応\n" +
+                        "- **状況**: フロントエンド主要画面のデザインは8割完了。\n" +
+                        "- **課題**: iOS Safariでマイク録音時に音声が取得できないバグが発生。\n" +
+                        "- **解決策**: iOS特有の `AudioContext` の制約であるため、佐藤氏が鈴木氏と午後から共同でコードレビュー及び修正作業を行い、バグを解決する。\n\n" +
+                        "## 4. アクションアイテム (ToDo)\n" +
+                        "- [ ] iOS Safariマイクバグの修正 / 担当: 鈴木・佐藤 / 期限: 本日中\n" +
+                        "- [ ] テスト環境へのデプロイ作業 / 担当: 鈴木 / 期限: 5月30日 (月)\n\n" +
+                        "## 5. 次回予定\n" +
+                        "- **次回ミーティング**: 来週水曜日";
+                    
+                    displayResults(demoTranscript, demoSummary);
+                    showLoading(false);
+                    
+                }, 800);
+            }, 800);
+        }, 1000);
+    }
+
+    // Helper to build robust prompts
+    function buildPrompt(template, customIns, rawText) {
+        let templatePrompt = "";
+        
+        switch (template) {
+            case 'brainstorm':
+                templatePrompt = 
+                    "このテキストはアイデア出し・ブレスト会議の文字起こしです。会議中に登場した「様々なアイデア」をカテゴリごとに漏れなく整理し、それぞれのメリット・デメリットを構造化してまとめてください。";
+                break;
+            case 'todo':
+                templatePrompt = 
+                    "このテキストから、「誰が」「いつまでに」「何をすべきか」というタスク（ToDo）を漏れなく抽出して整理してください。会話中で担当や期限が明確でないものについても、発言の前後関係から推測し、未確定箇所を明記して整理してください。";
+                break;
+            case 'brief':
+                templatePrompt = 
+                    "この会議の議論の要点と結論のみを、300文字程度の簡潔な要約文（箇条書き3点以内）でまとめてください。";
+                break;
+            case 'standard':
+            default:
+                templatePrompt = 
+                    "このテキストは会議の文字起こしです。会議の全体概要、決定された事項、各トピックの議論要約、今後のアクションアイテム（担当者・期限付きのToDo）を整理した、構造的で読みやすい議事録を作成してください。";
+                break;
+        }
+
+        let customBlock = "";
+        if (customIns) {
+            customBlock = `\n【ユーザーからの特別追加指示】:\n${customIns}\n`;
+        }
+
+        return `
+あなたは優秀なエグゼクティブアシスタントです。提供された会議の文字起こしデータをもとに、客観的で、抜け漏れがなく、アクションプランが明確な議事録を日本語で作成してください。
+
+【処理指示】:
+${templatePrompt}
+${customBlock}
+
+【出力形式】:
+Markdownフォーマットを使用して出力してください。見出し階層 (h2, h3) を使用して見やすくし、決定事項やToDoは箇条書きまたはタスクリスト形式 ( - [ ] ) で表現してください。
+
+【文字起こしデータ】:
+${rawText}
+`;
+    }
+
+    // ---------------------------------------------------------
+    // 9. UI Rendering & Actions
+    // ---------------------------------------------------------
+    function showLoading(show, text = "") {
+        if (show) {
+            elements.loadingText.innerText = text;
+            elements.loadingOverlay.classList.remove('hidden');
+        } else {
+            elements.loadingOverlay.classList.add('hidden');
+        }
+    }
+
+    function setProgressBar(percent) {
+        elements.progressBar.style.width = `${percent}%`;
+    }
+
+    function displayResults(transcript, summary) {
+        // Unhide elements
+        elements.summaryPlaceholder.classList.add('hidden');
+        elements.summaryRendered.classList.remove('hidden');
+        
+        elements.transcriptPlaceholder.classList.add('hidden');
+        elements.transcriptRaw.classList.remove('hidden');
+
+        // Render Markdown
+        elements.summaryRendered.innerHTML = marked.parse(summary);
+        elements.transcriptRaw.value = transcript;
+
+        // Enable buttons
+        elements.btnCopy.disabled = false;
+        elements.btnDownload.disabled = false;
+        
+        // Auto-switch to Summary view tab
+        elements.resultTabBtns[0].click();
+    }
+
+    // Copy Content Function
+    elements.btnCopy.addEventListener('click', () => {
+        // Find which tab is active to copy the right content
+        const activeTab = document.querySelector('.result-tab-btn.active').getAttribute('data-result-tab');
+        let textToCopy = "";
+        
+        if (activeTab === 'tab-summary') {
+            // Copy the markdown source rather than parsed HTML (or parsed text representation)
+            // We store the original markdown in a custom property on elements.summaryRendered
+            textToCopy = elements.summaryRendered.innerText;
+        } else {
+            textToCopy = elements.transcriptRaw.value;
+        }
+
+        navigator.clipboard.writeText(textToCopy)
+            .then(() => {
+                const originalText = elements.btnCopy.innerHTML;
+                elements.btnCopy.innerHTML = '<i data-lucide="check"></i> コピーしました';
+                lucide.createImages();
+                setTimeout(() => {
+                    elements.btnCopy.innerHTML = originalText;
+                    lucide.createImages();
+                }, 2000);
+            })
+            .catch(err => {
+                console.error("クリップボードへのコピーに失敗しました:", err);
+                alert("コピーに失敗しました。手動でテキストを選択してコピーしてください。");
+            });
+    });
+
+    // Download File Function
+    elements.btnDownload.addEventListener('click', () => {
+        const activeTab = document.querySelector('.result-tab-btn.active').getAttribute('data-result-tab');
+        let textContent = "";
+        let filename = "";
+
+        if (activeTab === 'tab-summary') {
+            textContent = elements.summaryRendered.innerText;
+            filename = `minutes_summary_${new Date().toISOString().slice(0,10)}.md`;
+        } else {
+            textContent = elements.transcriptRaw.value;
+            filename = `transcript_${new Date().toISOString().slice(0,10)}.txt`;
+        }
+
+        const blob = new Blob([textContent], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+
+    // ---------------------------------------------------------
+    // 10. Initialization
+    // ---------------------------------------------------------
+    loadSavedKeys();
+    lucide.createImages(); // Initialize beautiful icons
+});

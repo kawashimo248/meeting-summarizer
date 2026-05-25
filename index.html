@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 議事録ジェネレーター | スマホ対応自動要約</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons for beautiful modern icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Marked.js for markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo">
+                <i data-lucide="sparkles" class="logo-icon"></i>
+                <h1>AI 議事録ジェネレーター</h1>
+            </div>
+            <button id="btn-settings-toggle" class="btn btn-secondary btn-icon-only" title="APIキー設定">
+                <i data-lucide="settings"></i>
+            </button>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="app-main">
+            <!-- Left Panel / Controls -->
+            <section class="panel control-panel">
+                <!-- API Key Configuration Status Banner -->
+                <div id="api-status-banner" class="status-banner warning">
+                    <i data-lucide="alert-circle"></i>
+                    <span>APIキーが設定されていません。右上の設定アイコンから登録してください。</span>
+                </div>
+
+                <!-- Input Type Switcher Tabs -->
+                <div class="tabs-container">
+                    <div class="tabs">
+                        <button class="tab-btn active" data-tab="tab-record">
+                            <i data-lucide="mic"></i> マイク録音
+                        </button>
+                        <button class="tab-btn" data-tab="tab-upload">
+                            <i data-lucide="upload-cloud"></i> ファイル選択
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tab Contents -->
+                <div class="tab-content-container">
+                    <!-- Tab: Record -->
+                    <div id="tab-record" class="tab-pane active">
+                        <div class="recorder-wrapper">
+                            <div class="timer-display" id="record-timer">00:00</div>
+                            <div class="audio-visualizer-container">
+                                <div class="visualizer-bar-pulse" id="visualizer-pulse"></div>
+                                <canvas id="audio-visualizer"></canvas>
+                            </div>
+                            <div class="recorder-status" id="recorder-status">録音の準備ができました</div>
+                            <div class="recorder-controls">
+                                <button id="btn-record-start" class="btn btn-primary btn-round" title="録音開始">
+                                    <i data-lucide="mic" class="icon-lg"></i>
+                                </button>
+                                <button id="btn-record-pause" class="btn btn-secondary btn-round hidden" title="一時停止">
+                                    <i data-lucide="pause" class="icon-lg"></i>
+                                </button>
+                                <button id="btn-record-stop" class="btn btn-danger btn-round hidden" title="録音停止">
+                                    <i data-lucide="square" class="icon-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab: Upload -->
+                    <div id="tab-upload" class="tab-pane">
+                        <div class="drop-zone" id="drop-zone">
+                            <i data-lucide="file-audio" class="drop-icon"></i>
+                            <p class="drop-text">音声ファイルをドラッグ＆ドロップ、またはタップして選択</p>
+                            <span class="drop-hint">対応形式: mp3, wav, m4a, webm (最大 25MB)</span>
+                            <input type="file" id="audio-file-input" accept="audio/*" class="file-input">
+                        </div>
+                        <div id="selected-file-info" class="selected-file-info hidden">
+                            <div class="file-details">
+                                <i data-lucide="file-check" class="file-icon"></i>
+                                <span class="file-name" id="selected-file-name">filename.mp3</span>
+                                <span class="file-size" id="selected-file-size">0.0 MB</span>
+                            </div>
+                            <button id="btn-clear-file" class="btn btn-text btn-icon-only">
+                                <i data-lucide="x"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Summary Options -->
+                <div class="options-container card">
+                    <h3>要約設定</h3>
+                    <div class="form-group">
+                        <label for="template-select">議事録テンプレート</label>
+                        <select id="template-select" class="form-control">
+                            <option value="standard">標準的な議事録（決定事項・要点・ToDo）</option>
+                            <option value="brainstorm">ブレインストーミング・アイデア抽出</option>
+                            <option value="todo">ToDo / アクションアイテム特化</option>
+                            <option value="brief">クイックサマリー（短文要約）</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="custom-instruction">追加指示 (任意)</label>
+                        <textarea id="custom-instruction" class="form-control" rows="2" placeholder="例: 「〇〇の意見を中心にまとめて」「箇条書きを多めにして」など"></textarea>
+                    </div>
+                </div>
+
+                <!-- Action Button -->
+                <button id="btn-process" class="btn btn-action btn-full" disabled>
+                    <i data-lucide="wand-2"></i> 議事録を自動要約する
+                </button>
+            </section>
+
+            <!-- Right Panel / Output -->
+            <section class="panel output-panel">
+                <!-- Status Overlay (Loading) -->
+                <div id="loading-overlay" class="loading-overlay hidden">
+                    <div class="spinner-container">
+                        <div class="spinner"></div>
+                        <p class="loading-text" id="loading-text">文字起こしを送信中...</p>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar-fill" id="progress-bar"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Result Content -->
+                <div class="result-container card">
+                    <div class="result-header">
+                        <div class="result-tabs">
+                            <button class="result-tab-btn active" data-result-tab="tab-summary">要約された議事録</button>
+                            <button class="result-tab-btn" data-result-tab="tab-transcript">文字起こし（生テキスト）</button>
+                        </div>
+                        <div class="result-actions">
+                            <button id="btn-copy" class="btn btn-secondary btn-sm" disabled>
+                                <i data-lucide="copy"></i> コピー
+                            </button>
+                            <button id="btn-download" class="btn btn-secondary btn-sm" disabled>
+                                <i data-lucide="download"></i> 保存
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="result-body">
+                        <!-- Summary View -->
+                        <div id="tab-summary" class="result-pane active">
+                            <div class="placeholder-content" id="summary-placeholder">
+                                <i data-lucide="file-text" class="placeholder-icon"></i>
+                                <p>ここに要約された議事録が表示されます。<br>録音またはファイル選択後に「自動要約する」を実行してください。</p>
+                            </div>
+                            <div id="summary-rendered" class="markdown-body hidden"></div>
+                        </div>
+
+                        <!-- Transcript View -->
+                        <div id="tab-transcript" class="result-pane">
+                            <div class="placeholder-content" id="transcript-placeholder">
+                                <i data-lucide="align-left" class="placeholder-icon"></i>
+                                <p>ここに文字起こしされたテキストが表示されます。</p>
+                            </div>
+                            <textarea id="transcript-raw" class="raw-text-area hidden" readonly></textarea>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal hidden">
+            <div class="modal-content card">
+                <div class="modal-header">
+                    <h2>APIキー設定</h2>
+                    <button id="btn-settings-close" class="btn btn-text btn-icon-only">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-desc">
+                        このアプリはブラウザから直接APIを実行します。APIキーはサーバーに送信されず、お使いの端末（ブラウザ）にのみ安全に保存されます。
+                    </p>
+                    
+                    <div class="form-group">
+                        <label for="openai-api-key">
+                            OpenAI APIキー (文字起こし用)
+                            <a href="https://platform.openai.com/api-keys" target="_blank" class="link-external"><i data-lucide="external-link"></i></a>
+                        </label>
+                        <div class="input-password-wrapper">
+                            <input type="password" id="openai-api-key" class="form-control" placeholder="sk-proj-...">
+                            <button type="button" class="btn-toggle-visibility" data-target="openai-api-key">
+                                <i data-lucide="eye"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="gemini-api-key">
+                            Gemini APIキー (要約用)
+                            <a href="https://aistudio.google.com/app/apikey" target="_blank" class="link-external"><i data-lucide="external-link"></i></a>
+                        </label>
+                        <div class="input-password-wrapper">
+                            <input type="password" id="gemini-api-key" class="form-control" placeholder="AIzaSy...">
+                            <button type="button" class="btn-toggle-visibility" data-target="gemini-api-key">
+                                <i data-lucide="eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-actions">
+                        <button id="btn-settings-save" class="btn btn-primary btn-full">設定を保存する</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom JS -->
+    <script src="app.js"></script>
+</body>
+</html>
