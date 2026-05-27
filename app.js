@@ -6,9 +6,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---------------------------------------------------------
     // 1. Config & State Variables
     // ---------------------------------------------------------
-    // 使用するGeminiモデル。
-    // v1正式版エンドポイントを使用するため、'gemini-1.5-flash' または 'gemini-2.5-flash' が安定して動作します。
-    const GEMINI_MODEL = 'gemini-2.5-flash'; 
+    // Google AI Studioの無料キーで最も安定して音声解析ができる「gemini-1.5-flash」を標準にします。
+    const GEMINI_MODEL = 'gemini-1.5-flash'; 
     
     let mediaRecorder = null;
     let audioChunks = [];
@@ -432,15 +431,6 @@ document.addEventListener('DOMContentLoaded', () => {
         updateProcessButtonState();
     }
 
-    elements.btnClearFile.addEventListener('click', (e) => {
-        e.stopPropagation();
-        selectedFile = null;
-        elements.audioFileInput.value = '';
-        elements.dropZone.classList.remove('hidden');
-        elements.selectedFileInfo.classList.add('hidden');
-        updateProcessButtonState();
-    });
-
     function fileToBase64(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -516,7 +506,13 @@ document.addEventListener('DOMContentLoaded', () => {
             setProgressBar(30);
             const base64Audio = await fileToBase64(audioFileToUpload);
             
+            // MIMEタイプのクレンジング：ブラウザ由来のパラメータ（例: ';codecs=opus'）を除去し、純粋な形式のみにする
+            // これを怠ると、Google APIがサポート対象外MIMEタイプとしてモデルエラーを返すことがあります。
             let fileMimeType = audioFileToUpload.type;
+            if (fileMimeType && fileMimeType.includes(';')) {
+                fileMimeType = fileMimeType.split(';')[0].trim();
+            }
+            
             if (!fileMimeType) {
                 if (audioFileToUpload.name.endsWith('.mp3')) fileMimeType = 'audio/mp3';
                 else if (audioFileToUpload.name.endsWith('.wav')) fileMimeType = 'audio/wav';
@@ -548,11 +544,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 }]
             };
 
-            // 互換性と安定性を高めるため、エンドポイントを v1beta から正式版「v1」に変更
-            const apiEndpoint = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent?key=${key}`;
+            // 音声マルチモーダル解析を確実にサポートするため、エンドポイントを「v1beta」に設定。
+            // モデルは最も動作実績のある「gemini-1.5-flash」に固定します。
+            const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
             
             console.log("Gemini APIに送信中... モデル:", GEMINI_MODEL);
             console.log("エンドポイントURL:", apiEndpoint);
+            console.log("送信MIMEタイプ:", fileMimeType);
 
             const geminiResponse = await fetch(apiEndpoint, {
                 method: "POST",
@@ -616,7 +614,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
         } catch (error) {
             console.error("処理エラー詳細:", error);
-            alert(`エラーが発生しました:\n${error.message}\n\n【解決しない場合】\nスマホのブラウザに古いプログラムが残っている可能性があります。URLの末尾に「?v=2」などを追加してアクセスし直してみてください。`);
+            alert(`エラーが発生しました:\n${error.message}\n\n【解決しない場合の確認事項】\n1. 設定した「Gemini APIキー」が正しいかご確認ください（前後にスペースが入っていないか）。\n2. スマホのブラウザに古いプログラムが残っている可能性があります。URLの末尾に「?v=3」などを追加してアクセスし直してみてください。`);
         } finally {
             showLoading(false);
         }
@@ -705,7 +703,7 @@ document.addEventListener('DOMContentLoaded', () => {
 あなたは優秀なエグゼクティブアシスタントです。添付された音声ファイルを最初から最後まで注意深く聴いて、以下の「処理1」と「処理2」の両方を実行してください。
 
 # 処理1: 音声の文字起こし
-音声内で話されている日本語の会話内容を、一言一句漏らさずに正確にテキスト化（文字起こし）してください。話者が聞き取れる場合は、できる限り「山田：〜〜」「鈴木：〜〜」のように話者を特定して記述してください。
+音声内で話されている日本語の会話内容を、一言句漏らさずに正確にテキスト化（文字起こし）してください。話者が聞き取れる場合は、できる限り「山田：〜〜」「鈴木：〜〜」のように話者を特定して記述してください。
 
 # 処理2: 議事録の要約・構造化
 文字起こしした内容を整理し、以下の指示に沿って議事録を作成してください。
