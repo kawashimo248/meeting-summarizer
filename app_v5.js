@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---------------------------------------------------------
     // 1. Config & State Variables
     // ---------------------------------------------------------
-    const GEMINI_MODEL = 'gemini-1.5-flash'; 
+    const GEMINI_MODEL = 'gemini-2.5-flash'; 
     
     let mediaRecorder = null;
     let audioChunks = [];
