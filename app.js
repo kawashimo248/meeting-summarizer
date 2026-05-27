@@ -6,8 +6,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---------------------------------------------------------
     // 1. Config & State Variables
     // ---------------------------------------------------------
-    // 使用するGeminiモデル。ハイフン（-）の位置が非常に重要です。
-    // エラーが起きた場合は、'gemini-2.5-flash' や 'gemini-1.5-flash-latest' に変更してみてください。
+    // 使用するGeminiモデル。
+    // v1正式版エンドポイントを使用するため、'gemini-1.5-flash' または 'gemini-2.5-flash' が安定して動作します。
     const GEMINI_MODEL = 'gemini-2.5-flash'; 
     
     let mediaRecorder = null;
@@ -155,15 +155,12 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.addEventListener('click', () => {
             const targetTab = btn.getAttribute('data-tab');
             
-            // Switch buttons
             elements.tabBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             
-            // Switch panes
             elements.tabPanes.forEach(pane => pane.classList.remove('active'));
             document.getElementById(targetTab).classList.add('active');
             
-            // Stop recorder if switching tabs during recording
             if (targetTab !== 'tab-record' && mediaRecorder && mediaRecorder.state !== 'inactive') {
                 stopRecording();
             }
@@ -213,10 +210,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             streamRef = stream;
             
-            // Set up Audio Context and Visualizer
             setupVisualizer(stream);
             
-            // Find supported MIME Type (Priority: audio/webm, audio/ogg, audio/mp4, audio/wav)
             let options = {};
             const types = [
                 'audio/webm;codecs=opus',
@@ -245,7 +240,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/wav' });
                 elements.recorderStatus.innerText = `録音が完了しました (ファイルサイズ: ${(audioBlob.size / 1024 / 1024).toFixed(2)} MB)`;
                 
-                // Cleanup stream and visualizer
                 if (streamRef) {
                     streamRef.getTracks().forEach(track => track.stop());
                 }
@@ -260,10 +254,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateProcessButtonState();
             };
             
-            mediaRecorder.start(1000); // chunk every 1 sec
+            mediaRecorder.start(1000);
             elements.visualizerPulse.classList.add('recording');
             
-            // Start Timer
             recordSeconds = 0;
             updateTimerDisplay();
             elements.recorderStatus.innerText = '録音中...';
@@ -335,7 +328,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const canvas = elements.visualizerCanvas;
         const canvasCtx = canvas.getContext('2d');
         
-        // Set canvas physical dimensions matching CSS layout
         const rect = canvas.getBoundingClientRect();
         canvas.width = rect.width;
         canvas.height = rect.height;
@@ -344,7 +336,7 @@ document.addEventListener('DOMContentLoaded', () => {
             visualizerAnimId = requestAnimationFrame(draw);
             analyser.getByteFrequencyData(dataArray);
             
-            canvasCtx.fillStyle = 'rgba(9, 13, 22, 0.2)'; // trail effect
+            canvasCtx.fillStyle = 'rgba(9, 13, 22, 0.2)';
             canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
             
             const barWidth = (canvas.width / bufferLength) * 1.5;
@@ -352,9 +344,8 @@ document.addEventListener('DOMContentLoaded', () => {
             let x = 0;
             
             for(let i = 0; i < bufferLength; i++) {
-                barHeight = dataArray[i] * 0.45; // scale height
+                barHeight = dataArray[i] * 0.45;
                 
-                // Beautiful neon gradient for frequency bars
                 const grad = canvasCtx.createLinearGradient(0, canvas.height, 0, 0);
                 grad.addColorStop(0, '#3b82f6');
                 grad.addColorStop(0.5, '#8b5cf6');
@@ -377,7 +368,6 @@ document.addEventListener('DOMContentLoaded', () => {
         canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
     }
 
-    // Connect control clicks
     elements.btnRecordStart.addEventListener('click', startRecording);
     elements.btnRecordPause.addEventListener('click', pauseRecording);
     elements.btnRecordStop.addEventListener('click', stopRecording);
@@ -421,13 +411,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function handleSelectedFile(file) {
-        // Validate it's an audio file
         if (!file.type.startsWith('audio/') && !file.name.endsWith('.mp3') && !file.name.endsWith('.m4a') && !file.name.endsWith('.wav') && !file.name.endsWith('.webm')) {
             alert('音声ファイル（mp3, wav, m4a, webmなど）を選択してください。');
             return;
         }
 
-        // Limit size to 25MB (Gemini limits are higher, but 25MB is a good standard for fast upload)
         const maxSize = 25 * 1024 * 1024;
         if (file.size > maxSize) {
             alert('ファイルサイズが大きすぎます (最大25MB)。');
@@ -453,7 +441,6 @@ document.addEventListener('DOMContentLoaded', () => {
         updateProcessButtonState();
     });
 
-    // Helper: Convert File/Blob to Base64 String
     function fileToBase64(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -485,11 +472,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Start Real API Process
         runRealProcess(key);
     });
 
-    // Real API Request Execution (Gemini Native Audio Multimodal)
     async function runRealProcess(key) {
         showLoading(true, "音声データを読み込んでいます...");
         setProgressBar(10);
@@ -504,7 +489,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            // Determine dynamic extension and mimeType
             let extension = "wav";
             let mimeType = audioBlob.type;
             if (mediaRecorder && mediaRecorder.mimeType) {
@@ -528,12 +512,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         try {
-            // STEP 1: Convert file to Base64
             showLoading(true, "音声をAI送信フォーマットに変換中...");
             setProgressBar(30);
             const base64Audio = await fileToBase64(audioFileToUpload);
             
-            // Determine dynamic API MIME type for Gemini
             let fileMimeType = audioFileToUpload.type;
             if (!fileMimeType) {
                 if (audioFileToUpload.name.endsWith('.mp3')) fileMimeType = 'audio/mp3';
@@ -543,16 +525,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 else fileMimeType = 'audio/wav';
             }
 
-            // STEP 2: Send base64 audio and prompt to Gemini
             showLoading(true, "AIが音声を聞いて解析中 (これには数秒〜1分ほどかかります)...");
             setProgressBar(50);
 
-            // Build multimodal prompt
             const template = elements.templateSelect.value;
             const customIns = elements.customInstruction.value.trim();
             const prompt = buildPrompt(template, customIns);
 
-            // Construct Payload
             const payload = {
                 contents: [{
                     parts: [
@@ -569,12 +548,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 }]
             };
 
-            // モデル名はハイフン「-」の位置を含めて厳密である必要があります。
-            // v1betaモデルAPIに対して正しいエンドポイントを指定します。
-            const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
+            // 互換性と安定性を高めるため、エンドポイントを v1beta から正式版「v1」に変更
+            const apiEndpoint = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent?key=${key}`;
             
             console.log("Gemini APIに送信中... モデル:", GEMINI_MODEL);
-            console.log("エンドポイント:", apiEndpoint);
+            console.log("エンドポイントURL:", apiEndpoint);
 
             const geminiResponse = await fetch(apiEndpoint, {
                 method: "POST",
@@ -586,7 +564,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!geminiResponse.ok) {
                 const errData = await geminiResponse.json().catch(() => ({}));
-                console.error("Gemini API エラーレスポンス:", errData);
+                console.error("Gemini API エラー詳細:", errData);
                 const apiErrorMessage = errData.error?.message || `HTTP status: ${geminiResponse.status}`;
                 throw new Error(`Gemini API エラー: ${apiErrorMessage}\n(モデル名 '${GEMINI_MODEL}' が現在のAPIキーで利用可能か、またキーが正しいか確認してください。)`);
             }
@@ -594,7 +572,6 @@ document.addEventListener('DOMContentLoaded', () => {
             setProgressBar(80);
             const geminiData = await geminiResponse.json();
             
-            // Extract response text
             let fullTextOutput = "";
             try {
                 fullTextOutput = geminiData.candidates[0].content.parts[0].text;
@@ -603,7 +580,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error("Gemini から有効な解析結果が得られませんでした。応答フォーマットが想定外です。");
             }
 
-            // Parse output to separate Transcript and Summary
             let transcriptText = "";
             let summaryMarkdown = "";
 
@@ -620,7 +596,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 summaryMarkdown = fullTextOutput.substring(summaryStart + "===SUMMARY_START===".length, summaryEnd).trim();
             }
 
-            // Fallback parsing (in case the AI didn't follow the separators exactly)
             if (!transcriptText || !summaryMarkdown) {
                 console.warn("セパレータの抽出に失敗したため、代替パースを試みます。");
                 
@@ -641,13 +616,12 @@ document.addEventListener('DOMContentLoaded', () => {
             
         } catch (error) {
             console.error("処理エラー詳細:", error);
-            alert(`エラーが発生しました:\n${error.message}\n\n※解決しない場合は、設定のAPIキーが正しいか、またはモデル名（gemini-1.5-flash / gemini-2.5-flash）をコードで調整してください。`);
+            alert(`エラーが発生しました:\n${error.message}\n\n【解決しない場合】\nスマホのブラウザに古いプログラムが残っている可能性があります。URLの末尾に「?v=2」などを追加してアクセスし直してみてください。`);
         } finally {
             showLoading(false);
         }
     }
 
-    // Demo Mode Simulation (No API calls, offline testing)
     function runDemoProcess() {
         showLoading(true, "音声をロード中 (デモモード)...");
         setProgressBar(15);
@@ -684,7 +658,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         "### 議題A: アプリ開発進捗とバグ対応\n" +
                         "- **状況**: フロントエンド主要画面のデザインは8割完了。\n" +
                         "- **課題**: iOS Safariでマイク録音時に音声が取得できないバグが発生。\n" +
-                        "- **解決策**: iOS特有 of `AudioContext` の制約であるため、佐藤氏が鈴木氏と午後から共同でコードレビュー及び修正作業を行い、バグを解決する。\n\n" +
+                        "- **解決策**: iOS特有の `AudioContext` の制約であるため、佐藤氏が鈴木氏と午後から共同でコードレビュー及び修正作業を行い、バグを解決する。\n\n" +
                         "## 4. アクションアイテム (ToDo)\n" +
                         "- [ ] iOS Safariマイクバグの修正 / 担当: 鈴木・佐藤 / 期限: 本日中\n" +
                         "- [ ] テスト環境へのデプロイ作業 / 担当: 鈴木 / 期限: 5月30日 (月)\n\n" +
@@ -699,7 +673,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 1000);
     }
 
-    // Helper to build robust prompts for Gemini Multimodal Audio
     function buildPrompt(template, customIns) {
         let templateInstruction = "";
         
@@ -732,7 +705,7 @@ document.addEventListener('DOMContentLoaded', () => {
 あなたは優秀なエグゼクティブアシスタントです。添付された音声ファイルを最初から最後まで注意深く聴いて、以下の「処理1」と「処理2」の両方を実行してください。
 
 # 処理1: 音声の文字起こし
-音声内で話されている日本語の会話内容を、一言句漏らさずに正確にテキスト化（文字起こし）してください。話者が聞き取れる場合は、できる限り「山田：〜〜」「鈴木：〜〜」のように話者を特定して記述してください。
+音声内で話されている日本語の会話内容を、一言一句漏らさずに正確にテキスト化（文字起こし）してください。話者が聞き取れる場合は、できる限り「山田：〜〜」「鈴木：〜〜」のように話者を特定して記述してください。
 
 # 処理2: 議事録の要約・構造化
 文字起こしした内容を整理し、以下の指示に沿って議事録を作成してください。
@@ -746,7 +719,7 @@ ${customBlock}
 そのため、必ず以下の【区切り記号】を正確に使用し、指定された枠の中にそれぞれのテキストを出力してください。余計な前置きや挨拶文は出力しないでください。
 
 ===TRANSCRIPT_START===
-(ここには「処理1」の最初から最後までの完全な文字起こしテキストのみを出力してください)
+(ここには「処理1」の最初から保存される完全な文字起こしテキストのみを出力してください)
 ===TRANSCRIPT_END===
 
 ===SUMMARY_START===
@@ -771,7 +744,6 @@ ${customBlock}
         elements.progressBar.style.width = `${percent}%`;
     }
 
-    // Display Output
     function displayResults(transcript, summary) {
         elements.summaryPlaceholder.classList.add('hidden');
         elements.summaryRendered.classList.remove('hidden');
@@ -788,7 +760,6 @@ ${customBlock}
         elements.resultTabBtns[0].click();
     }
 
-    // Copy Content Function
     elements.btnCopy.addEventListener('click', () => {
         const activeTab = document.querySelector('.result-tab-btn.active').getAttribute('data-result-tab');
         let textToCopy = "";
@@ -815,7 +786,6 @@ ${customBlock}
             });
     });
 
-    // Download File Function
     elements.btnDownload.addEventListener('click', () => {
         const activeTab = document.querySelector('.result-tab-btn.active').getAttribute('data-result-tab');
         let textContent = "";
