@@ -39,7 +39,7 @@
                 <!-- API Key Configuration Status Banner -->
                 <div id="api-status-banner" class="status-banner warning">
                     <i data-lucide="alert-circle"></i>
-                    <span>APIキーが設定されていません。右上の設定アイコンから登録してください。</span>
+                    <span>Gemini APIキーが設定されていません。右上の設定アイコンから登録してください。（またはデモ実行可能です）</span>
                 </div>
 
                 <!-- Input Type Switcher Tabs -->
@@ -130,7 +130,7 @@
                 <div id="loading-overlay" class="loading-overlay hidden">
                     <div class="spinner-container">
                         <div class="spinner"></div>
-                        <p class="loading-text" id="loading-text">文字起こしを送信中...</p>
+                        <p class="loading-text" id="loading-text">音声解析を送信中...</p>
                         <div class="progress-bar-container">
                             <div class="progress-bar-fill" id="progress-bar"></div>
                         </div>
@@ -181,7 +181,7 @@
         <div id="settings-modal" class="modal hidden">
             <div class="modal-content card">
                 <div class="modal-header">
-                    <h2>APIキー設定</h2>
+                    <h2>Gemini APIキー設定</h2>
                     <button id="btn-settings-close" class="btn btn-text btn-icon-only">
                         <i data-lucide="x"></i>
                     </button>
@@ -192,21 +192,8 @@
                     </p>
                     
                     <div class="form-group">
-                        <label for="openai-api-key">
-                            OpenAI APIキー (文字起こし用)
-                            <a href="https://platform.openai.com/api-keys" target="_blank" class="link-external"><i data-lucide="external-link"></i></a>
-                        </label>
-                        <div class="input-password-wrapper">
-                            <input type="password" id="openai-api-key" class="form-control" placeholder="sk-proj-...">
-                            <button type="button" class="btn-toggle-visibility" data-target="openai-api-key">
-                                <i data-lucide="eye"></i>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
                         <label for="gemini-api-key">
-                            Gemini APIキー (要約用)
+                            Gemini APIキー
                             <a href="https://aistudio.google.com/app/apikey" target="_blank" class="link-external"><i data-lucide="external-link"></i></a>
                         </label>
                         <div class="input-password-wrapper">

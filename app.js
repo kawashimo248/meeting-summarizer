@@ -1,11 +1,14 @@
 /* ==========================================================================
-   JavaScript Application Logic: AI Minutes Generator
+   JavaScript Application Logic: AI Minutes Generator (Gemini-only version)
    ========================================================================== */
 
 document.addEventListener('DOMContentLoaded', () => {
     // ---------------------------------------------------------
-    // 1. State Variables & Elements
+    // 1. Config & State Variables
     // ---------------------------------------------------------
+    // 使用するGeminiモデル。最新のモデル名（例: gemini-2.5-flash や gemini-3.5-flash）に変更可能です。
+    const GEMINI_MODEL = 'gemini-1.5-flash'; 
+    
     let mediaRecorder = null;
     let audioChunks = [];
     let audioBlob = null;
@@ -70,7 +73,6 @@ document.addEventListener('DOMContentLoaded', () => {
         btnSettingsToggle: document.getElementById('btn-settings-toggle'),
         settingsModal: document.getElementById('settings-modal'),
         btnSettingsClose: document.getElementById('btn-settings-close'),
-        openaiApiKey: document.getElementById('openai-api-key'),
         geminiApiKey: document.getElementById('gemini-api-key'),
         btnSettingsSave: document.getElementById('btn-settings-save'),
         toggleVisibilityBtns: document.querySelectorAll('.btn-toggle-visibility')
@@ -79,18 +81,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---------------------------------------------------------
     // 2. API Key Management (LocalStorage)
     // ---------------------------------------------------------
-    function getApiKeys() {
-        return {
-            openai: localStorage.getItem('openai_api_key') || '',
-            gemini: localStorage.getItem('gemini_api_key') || ''
-        };
+    function getApiKey() {
+        return localStorage.getItem('gemini_api_key') || '';
     }
 
-    function checkApiKeysConfigured() {
-        const keys = getApiKeys();
-        
-        // Demomode: keys containing "demo" can also bypass for testing
-        const isConfigured = keys.openai.trim() !== '' && keys.gemini.trim() !== '';
+    function checkApiKeyConfigured() {
+        const key = getApiKey();
+        const isConfigured = key.trim() !== '';
         
         if (isConfigured) {
             elements.apiStatusBanner.classList.add('hidden');
@@ -99,16 +96,14 @@ document.addEventListener('DOMContentLoaded', () => {
             elements.apiStatusBanner.classList.remove('hidden');
             elements.apiStatusBanner.classList.add('warning');
             elements.apiStatusBanner.querySelector('span').innerText = 
-                'APIキーが設定されていません。右上の設定アイコンから登録してください。（またはデモ実行可能です）';
+                'Gemini APIキーが設定されていません。右上の設定アイコンから登録してください。（またはデモ実行可能です）';
         }
         updateProcessButtonState();
     }
 
     function loadSavedKeys() {
-        const keys = getApiKeys();
-        elements.openaiApiKey.value = keys.openai;
-        elements.geminiApiKey.value = keys.gemini;
-        checkApiKeysConfigured();
+        elements.geminiApiKey.value = getApiKey();
+        checkApiKeyConfigured();
     }
 
     // Toggle password visibility
@@ -140,9 +135,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     elements.btnSettingsSave.addEventListener('click', () => {
-        localStorage.setItem('openai_api_key', elements.openaiApiKey.value.trim());
         localStorage.setItem('gemini_api_key', elements.geminiApiKey.value.trim());
-        checkApiKeysConfigured();
+        checkApiKeyConfigured();
         elements.settingsModal.classList.add('hidden');
     });
 
@@ -203,7 +197,6 @@ document.addEventListener('DOMContentLoaded', () => {
             hasInput = selectedFile !== null;
         }
         
-        // We allow processing even if keys aren't set, in which case we trigger "Demo Mode"
         elements.btnProcess.disabled = !hasInput;
     }
 
@@ -433,7 +426,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Limit size to 25MB (OpenAI Whisper limit)
+        // Limit size to 25MB (Gemini limits are higher, but 25MB is a good standard for fast upload)
         const maxSize = 25 * 1024 * 1024;
         if (file.size > maxSize) {
             alert('ファイルサイズが大きすぎます (最大25MB)。');
@@ -459,18 +452,30 @@ document.addEventListener('DOMContentLoaded', () => {
         updateProcessButtonState();
     });
 
+    // Helper: Convert File/Blob to Base64 String
+    function fileToBase64(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => {
+                // Get the raw Base64 part by splitting the DataURL schema
+                const base64String = reader.result.split(',')[1];
+                resolve(base64String);
+            };
+            reader.onerror = error => reject(error);
+        });
+    }
+
     // ---------------------------------------------------------
     // 8. Processing & API Integrations
     // ---------------------------------------------------------
     elements.btnProcess.addEventListener('click', async () => {
-        const keys = getApiKeys();
-        
-        // Determine whether to run in Demo Mode or Real Mode
-        const isDemoMode = keys.openai.trim() === '' || keys.gemini.trim() === '';
+        const key = getApiKey();
+        const isDemoMode = key.trim() === '';
         
         if (isDemoMode) {
             const confirmDemo = confirm(
-                "APIキーが設定されていないか不足しています。\n" +
+                "Gemini APIキーが設定されていません。\n" +
                 "代わりに「デモシミュレーションモード」で議事録生成を試しますか？\n" +
                 "（API通信は行わず、自動的に高品質なサンプルの議事録を生成してUIの動きを体験できます。）"
             );
@@ -481,12 +486,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Start Real API Process
-        runRealProcess(keys);
+        runRealProcess(key);
     });
 
-    // Real API Request Execution
-    async function runRealProcess(keys) {
-        showLoading(true, "マイク音声 / ファイルを確認しています...");
+    // Real API Request Execution (Gemini Native Audio Multimodal)
+    async function runRealProcess(key) {
+        showLoading(true, "音声データを読み込んでいます...");
         setProgressBar(10);
         
         let audioFileToUpload = null;
@@ -499,15 +504,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            // Determine dynamic extension based on mimeType
+            // Determine dynamic extension and mimeType
             let extension = "wav";
+            let mimeType = audioBlob.type;
             if (mediaRecorder && mediaRecorder.mimeType) {
                 if (mediaRecorder.mimeType.includes("mp4")) extension = "m4a";
                 else if (mediaRecorder.mimeType.includes("webm")) extension = "webm";
                 else if (mediaRecorder.mimeType.includes("ogg")) extension = "ogg";
             }
             
-            audioFileToUpload = new File([audioBlob], `recording.${extension}`, { type: audioBlob.type });
+            // For Gemini, we must ensure a clean audio mimeType
+            if (!mimeType || mimeType === "") {
+                mimeType = "audio/wav";
+            }
+            
+            audioFileToUpload = new File([audioBlob], `recording.${extension}`, { type: mimeType });
         } else {
             if (!selectedFile) {
                 alert('アップロードする音声ファイルが選択されていません。');
@@ -518,57 +529,54 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         try {
-            // STEP 1: OpenAI Whisper API - Speech-to-Text
-            showLoading(true, "音声データをテキストに文字起こししています（Whisper API）...");
+            // STEP 1: Convert file to Base64
+            showLoading(true, "音声をAI送信フォーマットに変換中...");
             setProgressBar(30);
-
-            const formData = new FormData();
-            formData.append("file", audioFileToUpload);
-            formData.append("model", "whisper-1");
-            formData.append("language", "ja");
-
-            const whisperResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-                method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${keys.openai}`
-                },
-                body: formData
-            });
-
-            if (!whisperResponse.ok) {
-                const errData = await whisperResponse.json().catch(() => ({}));
-                throw new Error(errData.error?.message || `Whisper API エラー (ステータス: ${whisperResponse.status})`);
+            const base64Audio = await fileToBase64(audioFileToUpload);
+            
+            // Determine dynamic API MIME type for Gemini
+            let fileMimeType = audioFileToUpload.type;
+            // Fallbacks for empty mimetypes
+            if (!fileMimeType) {
+                if (audioFileToUpload.name.endsWith('.mp3')) fileMimeType = 'audio/mp3';
+                else if (audioFileToUpload.name.endsWith('.wav')) fileMimeType = 'audio/wav';
+                else if (audioFileToUpload.name.endsWith('.m4a')) fileMimeType = 'audio/m4a';
+                else if (audioFileToUpload.name.endsWith('.webm')) fileMimeType = 'audio/webm';
+                else fileMimeType = 'audio/wav';
             }
 
-            const whisperData = await whisperResponse.json();
-            const rawTranscript = whisperData.text;
+            // STEP 2: Send base64 audio and prompt to Gemini
+            showLoading(true, "AIが音声を聞いて解析中 (これには数秒〜1分ほどかかります)...");
+            setProgressBar(50);
 
-            if (!rawTranscript || rawTranscript.trim() === '') {
-                throw new Error("文字起こしデータが空です。音声が聞き取れなかった可能性があります。");
-            }
-
-            setProgressBar(60);
-
-            // STEP 2: Gemini API - Summarization
-            showLoading(true, "AIによる議事録の要約および構造化を実行しています（Gemini API）...");
-            setProgressBar(75);
-
-            // Template prompt logic
+            // Build multimodal prompt
             const template = elements.templateSelect.value;
             const customIns = elements.customInstruction.value.trim();
-            
-            const prompt = buildPrompt(template, customIns, rawTranscript);
+            const prompt = buildPrompt(template, customIns);
 
-            const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${keys.gemini}`, {
+            // Construct Payload
+            const payload = {
+                contents: [{
+                    parts: [
+                        {
+                            inlineData: {
+                                mimeType: fileMimeType,
+                                data: base64Audio
+                            }
+                        },
+                        {
+                            text: prompt
+                        }
+                    ]
+                }]
+            };
+
+            const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
                 },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [{ text: prompt }]
-                    }]
-                })
+                body: JSON.stringify(payload)
             });
 
             if (!geminiResponse.ok) {
@@ -576,20 +584,56 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error(errData.error?.message || `Gemini API エラー (ステータス: ${geminiResponse.status})`);
             }
 
+            setProgressBar(80);
             const geminiData = await geminiResponse.json();
             
             // Extract response text
-            let summaryMarkdown = "";
+            let fullTextOutput = "";
             try {
-                summaryMarkdown = geminiData.candidates[0].content.parts[0].text;
+                fullTextOutput = geminiData.candidates[0].content.parts[0].text;
             } catch (e) {
-                throw new Error("Gemini から有効な要約結果が得られませんでした。");
+                throw new Error("Gemini から有効な解析結果が得られませんでした。");
+            }
+
+            // Parse output to separate Transcript and Summary
+            let transcriptText = "";
+            let summaryMarkdown = "";
+
+            const transcriptStart = fullTextOutput.indexOf("===TRANSCRIPT_START===");
+            const transcriptEnd = fullTextOutput.indexOf("===TRANSCRIPT_END===");
+            const summaryStart = fullTextOutput.indexOf("===SUMMARY_START===");
+            const summaryEnd = fullTextOutput.indexOf("===SUMMARY_END===");
+
+            if (transcriptStart !== -1 && transcriptEnd !== -1) {
+                transcriptText = fullTextOutput.substring(transcriptStart + "===TRANSCRIPT_START===".length, transcriptEnd).trim();
+            }
+            
+            if (summaryStart !== -1 && summaryEnd !== -1) {
+                summaryMarkdown = fullTextOutput.substring(summaryStart + "===SUMMARY_START===".length, summaryEnd).trim();
+            }
+
+            // Fallback parsing (in case the AI didn't follow the separators exactly)
+            if (!transcriptText || !summaryMarkdown) {
+                console.warn("セパレータの抽出に失敗したため、代替パースを試みます。");
+                
+                // Use regular expressions as backup
+                const transMatch = fullTextOutput.match(/===TRANSCRIPT_START===([\s\S]*?)===TRANSCRIPT_END===/);
+                const summMatch = fullTextOutput.match(/===SUMMARY_START===([\s\S]*?)===SUMMARY_END===/);
+                
+                if (transMatch) transcriptText = transMatch[1].trim();
+                if (summMatch) summaryMarkdown = summMatch[1].trim();
+                
+                // If still empty, dump all in summary and put warning in transcript
+                if (!summaryMarkdown) {
+                    summaryMarkdown = fullTextOutput;
+                    transcriptText = "文字起こしの自動分割に失敗しました。文字起こしテキストは要約結果タブの記述をご確認ください。";
+                }
             }
 
             setProgressBar(100);
             
             // Display Results
-            displayResults(rawTranscript, summaryMarkdown);
+            displayResults(transcriptText, summaryMarkdown);
             
         } catch (error) {
             console.error("処理エラー:", error);
@@ -599,18 +643,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Demo Mode Simulation
+    // Demo Mode Simulation (No API calls, offline testing)
     function runDemoProcess() {
-        showLoading(true, "文字起こしを解析中 (デモモード)...");
+        showLoading(true, "音声をロード中 (デモモード)...");
         setProgressBar(15);
         
         setTimeout(() => {
             setProgressBar(45);
-            showLoading(true, "議論の要点を抽出中 (デモモード)...");
+            showLoading(true, "AIが音声を聴いて書き起こし中 (デモモード)...");
             
             setTimeout(() => {
                 setProgressBar(75);
-                showLoading(true, "要約テキストを整形中 (デモモード)...");
+                showLoading(true, "決定事項とToDoを整理中 (デモモード)...");
                 
                 setTimeout(() => {
                     setProgressBar(100);
@@ -651,27 +695,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 1000);
     }
 
-    // Helper to build robust prompts
-    function buildPrompt(template, customIns, rawText) {
-        let templatePrompt = "";
+    // Helper to build robust prompts for Gemini Multimodal Audio
+    function buildPrompt(template, customIns) {
+        let templateInstruction = "";
         
         switch (template) {
             case 'brainstorm':
-                templatePrompt = 
-                    "このテキストはアイデア出し・ブレスト会議の文字起こしです。会議中に登場した「様々なアイデア」をカテゴリごとに漏れなく整理し、それぞれのメリット・デメリットを構造化してまとめてください。";
+                templateInstruction = 
+                    "会議中に登場した「様々なアイデア」をカテゴリごとに漏れなく整理し、それぞれのメリット・デメリットを構造化してまとめてください。";
                 break;
             case 'todo':
-                templatePrompt = 
-                    "このテキストから、「誰が」「いつまでに」「何をすべきか」というタスク（ToDo）を漏れなく抽出して整理してください。会話中で担当や期限が明確でないものについても、発言の前後関係から推測し、未確定箇所を明記して整理してください。";
+                templateInstruction = 
+                    "会話から、「誰が」「いつまでに」「何をすべきか」というタスク（ToDo）を漏れなく抽出してリスト化してください。会話中で担当や期限が不明な箇所は、その旨を明記して整理してください。";
                 break;
             case 'brief':
-                templatePrompt = 
-                    "この会議の議論の要点と結論のみを、300文字程度の簡潔な要約文（箇条書き3点以内）でまとめてください。";
+                templateInstruction = 
+                    "会議の議論の要点と結論のみを、300文字程度の簡潔な要約文（箇条書き3点以内）でまとめてください。";
                 break;
             case 'standard':
             default:
-                templatePrompt = 
-                    "このテキストは会議の文字起こしです。会議の全体概要、決定された事項、各トピックの議論要約、今後のアクションアイテム（担当者・期限付きのToDo）を整理した、構造的で読みやすい議事録を作成してください。";
+                templateInstruction = 
+                    "会議の全体概要、決定された事項、各トピックの議論要約、今後のアクションアイテム（担当者・期限付きのToDo）を整理した、構造的で読みやすい議事録を作成してください。";
                 break;
         }
 
@@ -681,17 +725,29 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         return `
-あなたは優秀なエグゼクティブアシスタントです。提供された会議の文字起こしデータをもとに、客観的で、抜け漏れがなく、アクションプランが明確な議事録を日本語で作成してください。
+あなたは優秀なエグゼクティブアシスタントです。添付された音声ファイルを最初から最後まで注意深く聴いて、以下の「処理1」と「処理2」の両方を実行してください。
 
-【処理指示】:
-${templatePrompt}
+# 処理1: 音声の文字起こし
+音声内で話されている日本語の会話内容を、一言一句漏らさずに正確にテキスト化（文字起こし）してください。話者が聞き取れる場合は、できる限り「山田：〜〜」「鈴木：〜〜」のように話者を特定して記述してください。
+
+# 処理2: 議事録の要約・構造化
+文字起こしした内容を整理し、以下の指示に沿って議事録を作成してください。
+指示内容：${templateInstruction}
 ${customBlock}
 
-【出力形式】:
-Markdownフォーマットを使用して出力してください。見出し階層 (h2, h3) を使用して見やすくし、決定事項やToDoは箇条書きまたはタスクリスト形式 ( - [ ] ) で表現してください。
+---
 
-【文字起こしデータ】:
-${rawText}
+# 重要：出力フォーマットの厳守
+あなたの回答は、システムプログラムによって自動的に「文字起こし」と「要約結果」に分解されて画面に表示されます。
+そのため、必ず以下の【区切り記号】を正確に使用し、指定された枠の中にそれぞれのテキストを出力してください。余計な前置きや挨拶文は出力しないでください。
+
+===TRANSCRIPT_START===
+(ここには「処理1」の最初から最後までの完全な文字起こしテキストのみを出力してください)
+===TRANSCRIPT_END===
+
+===SUMMARY_START===
+(ここには「処理2」のMarkdown形式で要約された議事録テキストのみを出力してください。見出し、箇条書き、タスクリストなどを活用してください)
+===SUMMARY_END===
 `;
     }
 
@@ -719,7 +775,7 @@ ${rawText}
         elements.transcriptPlaceholder.classList.add('hidden');
         elements.transcriptRaw.classList.remove('hidden');
 
-        // Render Markdown
+        // Render Markdown and Raw Text
         elements.summaryRendered.innerHTML = marked.parse(summary);
         elements.transcriptRaw.value = transcript;
 
@@ -733,13 +789,10 @@ ${rawText}
 
     // Copy Content Function
     elements.btnCopy.addEventListener('click', () => {
-        // Find which tab is active to copy the right content
         const activeTab = document.querySelector('.result-tab-btn.active').getAttribute('data-result-tab');
         let textToCopy = "";
         
         if (activeTab === 'tab-summary') {
-            // Copy the markdown source rather than parsed HTML (or parsed text representation)
-            // We store the original markdown in a custom property on elements.summaryRendered
             textToCopy = elements.summaryRendered.innerText;
         } else {
             textToCopy = elements.transcriptRaw.value;
