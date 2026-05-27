@@ -6,7 +6,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---------------------------------------------------------
     // 1. Config & State Variables
     // ---------------------------------------------------------
-    // Google AI Studioの無料キーで最も安定して音声解析ができる「gemini-1.5-flash」を標準にします。
     const GEMINI_MODEL = 'gemini-1.5-flash'; 
     
     let mediaRecorder = null;
@@ -506,8 +505,6 @@ document.addEventListener('DOMContentLoaded', () => {
             setProgressBar(30);
             const base64Audio = await fileToBase64(audioFileToUpload);
             
-            // MIMEタイプのクレンジング：ブラウザ由来のパラメータ（例: ';codecs=opus'）を除去し、純粋な形式のみにする
-            // これを怠ると、Google APIがサポート対象外MIMEタイプとしてモデルエラーを返すことがあります。
             let fileMimeType = audioFileToUpload.type;
             if (fileMimeType && fileMimeType.includes(';')) {
                 fileMimeType = fileMimeType.split(';')[0].trim();
@@ -544,12 +541,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }]
             };
 
-            // 音声マルチモーダル解析を確実にサポートするため、エンドポイントを「v1beta」に設定。
-            // モデルは最も動作実績のある「gemini-1.5-flash」に固定します。
             const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
             
             console.log("Gemini APIに送信中... モデル:", GEMINI_MODEL);
-            console.log("エンドポイントURL:", apiEndpoint);
             console.log("送信MIMEタイプ:", fileMimeType);
 
             const geminiResponse = await fetch(apiEndpoint, {
@@ -563,8 +557,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!geminiResponse.ok) {
                 const errData = await geminiResponse.json().catch(() => ({}));
                 console.error("Gemini API エラー詳細:", errData);
+                
+                // エラー内容を画面上にわかりやすく表示するデバッグ用コード
                 const apiErrorMessage = errData.error?.message || `HTTP status: ${geminiResponse.status}`;
-                throw new Error(`Gemini API エラー: ${apiErrorMessage}\n(モデル名 '${GEMINI_MODEL}' が現在のAPIキーで利用可能か、またキーが正しいか確認してください。)`);
+                const apiErrorStatus = errData.error?.status || "UNKNOWN";
+                const errorJsonString = JSON.stringify(errData, null, 2);
+                
+                displayErrorOnScreen(apiErrorMessage, apiErrorStatus, errorJsonString);
+                throw new Error(`Gemini API エラー: ${apiErrorMessage} (ステータス: ${apiErrorStatus})`);
             }
 
             setProgressBar(80);
@@ -614,10 +614,45 @@ document.addEventListener('DOMContentLoaded', () => {
             
         } catch (error) {
             console.error("処理エラー詳細:", error);
-            alert(`エラーが発生しました:\n${error.message}\n\n【解決しない場合の確認事項】\n1. 設定した「Gemini APIキー」が正しいかご確認ください（前後にスペースが入っていないか）。\n2. スマホのブラウザに古いプログラムが残っている可能性があります。URLの末尾に「?v=3」などを追加してアクセスし直してみてください。`);
+            // 画面上に既に赤いエラーが表示されている場合は二重にアラートを出さない
+            if (!elements.summaryRendered.classList.contains('error-style-display')) {
+                alert(`エラーが発生しました:\n${error.message}`);
+            }
         } finally {
             showLoading(false);
         }
+    }
+
+    // デバッグ用：画面の要約結果エリアにエラーの詳細をドカンと表示する
+    function displayErrorOnScreen(message, status, rawJson) {
+        elements.summaryPlaceholder.classList.add('hidden');
+        elements.summaryRendered.classList.remove('hidden');
+        elements.summaryRendered.classList.add('error-style-display');
+        
+        elements.summaryRendered.innerHTML = `
+            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); padding: 18px; border-radius: var(--radius-sm); color: #fecaca; font-size: 0.9rem;">
+                <h3 style="color: var(--danger); margin-bottom: 10px; font-family: var(--font-heading); display:flex; align-items:center; gap:8px;">
+                    <i data-lucide="alert-octagon"></i> Google APIからエラーが返されました
+                </h3>
+                <p style="font-weight: 600; margin-bottom: 8px;">エラー理由: ${message}</p>
+                <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 16px;">ステータスコード: ${status}</p>
+                
+                <details style="margin-top: 12px; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 4px;">
+                    <summary style="cursor:pointer; font-size: 0.8rem; color: var(--primary);">デバッグ用の詳細データ (生JSON)</summary>
+                    <pre style="font-family: monospace; font-size: 0.75rem; color: var(--text-secondary); white-space: pre-wrap; margin-top: 8px;">${rawJson}</pre>
+                </details>
+            </div>
+        `;
+        
+        elements.transcriptPlaceholder.classList.add('hidden');
+        elements.transcriptRaw.classList.remove('hidden');
+        elements.transcriptRaw.value = `エラーが発生したため、文字起こしテキストは生成されませんでした。\nステータス: ${status}\nエラー内容: ${message}`;
+        
+        elements.btnCopy.disabled = true;
+        elements.btnDownload.disabled = true;
+        
+        lucide.createImages();
+        elements.resultTabBtns[0].click();
     }
 
     function runDemoProcess() {
@@ -638,7 +673,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const demoTranscript = 
                         "山田：それでは定例会議を始めます。本日の議題は、新しい測定スケジュール管理アプリの開発進捗と、今後のデプロイ計画についてです。まずは進捗からお願いします。\n" +
                         "鈴木：はい、フロントエンドの主要画面デザインはCSSでのスタイリング含め、ほぼ8割程度完成しています。ただ、スマホ対応でのマイク録音連携部分で、iOS Safariのみマイク入力がうまく取得できないバグが発見され、その対応に手こずっています。\n" +
-                        "佐藤：iOSのSafariはWeb Audio APIの仕様が他ブラウザと少し異なっていて、ユーザーインタラクションの直後にAudioContextを開始しないとミュートされる制約があります。そこは私の方で過去に対応コードを書いたことがあるので、鈴木さんを手伝います。今日の午後、2人でコードレビューをしながら修正しましょう。\n" +
+                        "佐藤：iOSのSafariはWeb Audio APIの仕様が他ブラウザと少し異なっていて、ユーザーインタラクション of 直後にAudioContextを開始しないとミュートされる制約があります。そこは私の方で過去に対応コードを書いたことがあるので、鈴木さんを手伝います。今日の午後、2人でコードレビューをしながら修正しましょう。\n" +
                         "鈴木：ありがとうございます！助かります。それが解決すれば、週明けの月曜日にはテスト環境にデプロイできる予定です。\n" +
                         "山田：了解しました。では、佐藤さんと鈴木さんでそのバグ修正をお願いします。デプロイ先はGitHub Pagesで問題ないですか？\n" +
                         "鈴木：はい、静的フロントエンドなのでGitHub Pagesでデプロイ可能です。ただ、APIキーをどう管理するかですね。各自がローカルストレージに入力するアプローチで進めます。\n" +
@@ -685,7 +720,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'brief':
                 templateInstruction = 
-                    "会議の議論の要点と結論のみを、300文字程度の簡潔な要約文（箇条書き3点以内）でまとめてください。";
+                    "会議の議論の要点と結論のみを、300文字程度の簡潔な要約文（箇取り3点以内）でまとめてください。";
                 break;
             case 'standard':
             default:
@@ -726,23 +761,9 @@ ${customBlock}
 `;
     }
 
-    // ---------------------------------------------------------
-    // 9. UI Rendering & Actions
-    // ---------------------------------------------------------
-    function showLoading(show, text = "") {
-        if (show) {
-            elements.loadingText.innerText = text;
-            elements.loadingOverlay.classList.remove('hidden');
-        } else {
-            elements.loadingOverlay.classList.add('hidden');
-        }
-    }
-
-    function setProgressBar(percent) {
-        elements.progressBar.style.width = `${percent}%`;
-    }
-
+    // Display Output
     function displayResults(transcript, summary) {
+        elements.summaryRendered.classList.remove('error-style-display'); // Reset error style if any
         elements.summaryPlaceholder.classList.add('hidden');
         elements.summaryRendered.classList.remove('hidden');
         
