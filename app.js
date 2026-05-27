@@ -6,8 +6,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---------------------------------------------------------
     // 1. Config & State Variables
     // ---------------------------------------------------------
-    // 使用するGeminiモデル。最新のモデル名（例: gemini-2.5-flash や gemini-3.5-flash）に変更可能です。
-    const GEMINI_MODEL = 'gemini-1.5-flash'; 
+    // 使用するGeminiモデル。ハイフン（-）の位置が非常に重要です。
+    // エラーが起きた場合は、'gemini-2.5-flash' や 'gemini-1.5-flash-latest' に変更してみてください。
+    const GEMINI_MODEL = 'gemini-2.5-flash'; 
     
     let mediaRecorder = null;
     let audioChunks = [];
@@ -458,7 +459,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const reader = new FileReader();
             reader.readAsDataURL(file);
             reader.onload = () => {
-                // Get the raw Base64 part by splitting the DataURL schema
                 const base64String = reader.result.split(',')[1];
                 resolve(base64String);
             };
@@ -513,7 +513,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 else if (mediaRecorder.mimeType.includes("ogg")) extension = "ogg";
             }
             
-            // For Gemini, we must ensure a clean audio mimeType
             if (!mimeType || mimeType === "") {
                 mimeType = "audio/wav";
             }
@@ -536,11 +535,10 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Determine dynamic API MIME type for Gemini
             let fileMimeType = audioFileToUpload.type;
-            // Fallbacks for empty mimetypes
             if (!fileMimeType) {
                 if (audioFileToUpload.name.endsWith('.mp3')) fileMimeType = 'audio/mp3';
                 else if (audioFileToUpload.name.endsWith('.wav')) fileMimeType = 'audio/wav';
-                else if (audioFileToUpload.name.endsWith('.m4a')) fileMimeType = 'audio/m4a';
+                else if (audioFileToUpload.name.endsWith('.m4a') || audioFileToUpload.name.endsWith('.mp4')) fileMimeType = 'audio/m4a';
                 else if (audioFileToUpload.name.endsWith('.webm')) fileMimeType = 'audio/webm';
                 else fileMimeType = 'audio/wav';
             }
@@ -571,7 +569,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }]
             };
 
-            const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`, {
+            // モデル名はハイフン「-」の位置を含めて厳密である必要があります。
+            // v1betaモデルAPIに対して正しいエンドポイントを指定します。
+            const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
+            
+            console.log("Gemini APIに送信中... モデル:", GEMINI_MODEL);
+            console.log("エンドポイント:", apiEndpoint);
+
+            const geminiResponse = await fetch(apiEndpoint, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
@@ -581,7 +586,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!geminiResponse.ok) {
                 const errData = await geminiResponse.json().catch(() => ({}));
-                throw new Error(errData.error?.message || `Gemini API エラー (ステータス: ${geminiResponse.status})`);
+                console.error("Gemini API エラーレスポンス:", errData);
+                const apiErrorMessage = errData.error?.message || `HTTP status: ${geminiResponse.status}`;
+                throw new Error(`Gemini API エラー: ${apiErrorMessage}\n(モデル名 '${GEMINI_MODEL}' が現在のAPIキーで利用可能か、またキーが正しいか確認してください。)`);
             }
 
             setProgressBar(80);
@@ -592,7 +599,8 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 fullTextOutput = geminiData.candidates[0].content.parts[0].text;
             } catch (e) {
-                throw new Error("Gemini から有効な解析結果が得られませんでした。");
+                console.error("パースエラー。API応答:", geminiData);
+                throw new Error("Gemini から有効な解析結果が得られませんでした。応答フォーマットが想定外です。");
             }
 
             // Parse output to separate Transcript and Summary
@@ -616,28 +624,24 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!transcriptText || !summaryMarkdown) {
                 console.warn("セパレータの抽出に失敗したため、代替パースを試みます。");
                 
-                // Use regular expressions as backup
                 const transMatch = fullTextOutput.match(/===TRANSCRIPT_START===([\s\S]*?)===TRANSCRIPT_END===/);
                 const summMatch = fullTextOutput.match(/===SUMMARY_START===([\s\S]*?)===SUMMARY_END===/);
                 
                 if (transMatch) transcriptText = transMatch[1].trim();
                 if (summMatch) summaryMarkdown = summMatch[1].trim();
                 
-                // If still empty, dump all in summary and put warning in transcript
                 if (!summaryMarkdown) {
                     summaryMarkdown = fullTextOutput;
-                    transcriptText = "文字起こしの自動分割に失敗しました。文字起こしテキストは要約結果タブの記述をご確認ください。";
+                    transcriptText = "文字起こしの自動分割に失敗しました。詳細な内容は要約結果タブをご確認ください。";
                 }
             }
 
             setProgressBar(100);
-            
-            // Display Results
             displayResults(transcriptText, summaryMarkdown);
             
         } catch (error) {
-            console.error("処理エラー:", error);
-            alert(`エラーが発生しました:\n${error.message}`);
+            console.error("処理エラー詳細:", error);
+            alert(`エラーが発生しました:\n${error.message}\n\n※解決しない場合は、設定のAPIキーが正しいか、またはモデル名（gemini-1.5-flash / gemini-2.5-flash）をコードで調整してください。`);
         } finally {
             showLoading(false);
         }
@@ -680,7 +684,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         "### 議題A: アプリ開発進捗とバグ対応\n" +
                         "- **状況**: フロントエンド主要画面のデザインは8割完了。\n" +
                         "- **課題**: iOS Safariでマイク録音時に音声が取得できないバグが発生。\n" +
-                        "- **解決策**: iOS特有の `AudioContext` の制約であるため、佐藤氏が鈴木氏と午後から共同でコードレビュー及び修正作業を行い、バグを解決する。\n\n" +
+                        "- **解決策**: iOS特有 of `AudioContext` の制約であるため、佐藤氏が鈴木氏と午後から共同でコードレビュー及び修正作業を行い、バグを解決する。\n\n" +
                         "## 4. アクションアイテム (ToDo)\n" +
                         "- [ ] iOS Safariマイクバグの修正 / 担当: 鈴木・佐藤 / 期限: 本日中\n" +
                         "- [ ] テスト環境へのデプロイ作業 / 担当: 鈴木 / 期限: 5月30日 (月)\n\n" +
@@ -728,7 +732,7 @@ document.addEventListener('DOMContentLoaded', () => {
 あなたは優秀なエグゼクティブアシスタントです。添付された音声ファイルを最初から最後まで注意深く聴いて、以下の「処理1」と「処理2」の両方を実行してください。
 
 # 処理1: 音声の文字起こし
-音声内で話されている日本語の会話内容を、一言一句漏らさずに正確にテキスト化（文字起こし）してください。話者が聞き取れる場合は、できる限り「山田：〜〜」「鈴木：〜〜」のように話者を特定して記述してください。
+音声内で話されている日本語の会話内容を、一言句漏らさずに正確にテキスト化（文字起こし）してください。話者が聞き取れる場合は、できる限り「山田：〜〜」「鈴木：〜〜」のように話者を特定して記述してください。
 
 # 処理2: 議事録の要約・構造化
 文字起こしした内容を整理し、以下の指示に沿って議事録を作成してください。
@@ -767,23 +771,20 @@ ${customBlock}
         elements.progressBar.style.width = `${percent}%`;
     }
 
+    // Display Output
     function displayResults(transcript, summary) {
-        // Unhide elements
         elements.summaryPlaceholder.classList.add('hidden');
         elements.summaryRendered.classList.remove('hidden');
         
         elements.transcriptPlaceholder.classList.add('hidden');
         elements.transcriptRaw.classList.remove('hidden');
 
-        // Render Markdown and Raw Text
         elements.summaryRendered.innerHTML = marked.parse(summary);
         elements.transcriptRaw.value = transcript;
 
-        // Enable buttons
         elements.btnCopy.disabled = false;
         elements.btnDownload.disabled = false;
         
-        // Auto-switch to Summary view tab
         elements.resultTabBtns[0].click();
     }
 
@@ -809,8 +810,8 @@ ${customBlock}
                 }, 2000);
             })
             .catch(err => {
-                console.error("クリップボードへのコピーに失敗しました:", err);
-                alert("コピーに失敗しました。手動でテキストを選択してコピーしてください。");
+                console.error("コピー失敗:", err);
+                alert("コピーに失敗しました。");
             });
     });
 
@@ -843,5 +844,5 @@ ${customBlock}
     // 10. Initialization
     // ---------------------------------------------------------
     loadSavedKeys();
-    lucide.createImages(); // Initialize beautiful icons
+    lucide.createImages();
 });
