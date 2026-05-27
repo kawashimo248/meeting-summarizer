@@ -1,5 +1,5 @@
 /* ==========================================================================
-   JavaScript Application Logic: AI Minutes Generator (Gemini-only version - v5)
+   JavaScript Application Logic: AI Minutes Generator (Gemini-only version - v5.2)
    ========================================================================== */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -78,7 +78,38 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // ---------------------------------------------------------
-    // 2. API Key Management (LocalStorage)
+    // 2. Helper Functions (Defined early to prevent ReferenceErrors)
+    // ---------------------------------------------------------
+    
+    // 安全にLucideアイコンをレンダリングする関数 (関数名はcreateIconsが正しい)
+    function safeCreateIcons() {
+        try {
+            if (window.lucide && typeof window.lucide.createIcons === 'function') {
+                window.lucide.createIcons();
+            }
+        } catch (e) {
+            console.warn("Lucideアイコンの描画に失敗しました:", e);
+        }
+    }
+
+    function showLoading(show, text = "") {
+        if (!elements.loadingOverlay) return;
+        if (show) {
+            if (elements.loadingText) elements.loadingText.innerText = text;
+            elements.loadingOverlay.classList.remove('hidden');
+        } else {
+            elements.loadingOverlay.classList.add('hidden');
+        }
+    }
+
+    function setProgressBar(percent) {
+        if (elements.progressBar) {
+            elements.progressBar.style.width = `${percent}%`;
+        }
+    }
+
+    // ---------------------------------------------------------
+    // 3. API Key Management (LocalStorage)
     // ---------------------------------------------------------
     function getApiKey() {
         return localStorage.getItem('gemini_api_key') || '';
@@ -88,103 +119,129 @@ document.addEventListener('DOMContentLoaded', () => {
         const key = getApiKey();
         const isConfigured = key.trim() !== '';
         
-        if (isConfigured) {
-            elements.apiStatusBanner.classList.add('hidden');
-            elements.apiStatusBanner.classList.remove('warning');
-        } else {
-            elements.apiStatusBanner.classList.remove('hidden');
-            elements.apiStatusBanner.classList.add('warning');
-            elements.apiStatusBanner.querySelector('span').innerText = 
-                'Gemini APIキーが設定されていません。右上の設定アイコンから登録してください。（またはデモ実行可能です）';
+        if (elements.apiStatusBanner) {
+            if (isConfigured) {
+                elements.apiStatusBanner.classList.add('hidden');
+                elements.apiStatusBanner.classList.remove('warning');
+            } else {
+                elements.apiStatusBanner.classList.remove('hidden');
+                elements.apiStatusBanner.classList.add('warning');
+                const span = elements.apiStatusBanner.querySelector('span');
+                if (span) {
+                    span.innerText = 'Gemini APIキーが設定されていません。右上の設定アイコンから登録してください。（またはデモ実行可能です）';
+                }
+            }
         }
         updateProcessButtonState();
     }
 
     function loadSavedKeys() {
-        elements.geminiApiKey.value = getApiKey();
+        if (elements.geminiApiKey) {
+            elements.geminiApiKey.value = getApiKey();
+        }
         checkApiKeyConfigured();
     }
 
     // Toggle password visibility
-    elements.toggleVisibilityBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            const targetId = btn.getAttribute('data-target');
-            const targetInput = document.getElementById(targetId);
-            const icon = btn.querySelector('i');
-            
-            if (targetInput.type === 'password') {
-                targetInput.type = 'text';
-                icon.setAttribute('data-lucide', 'eye-off');
-            } else {
-                targetInput.type = 'password';
-                icon.setAttribute('data-lucide', 'eye');
-            }
-            lucide.createImages();
+    if (elements.toggleVisibilityBtns) {
+        elements.toggleVisibilityBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const targetId = btn.getAttribute('data-target');
+                const targetInput = document.getElementById(targetId);
+                if (targetInput) {
+                    const icon = btn.querySelector('i');
+                    if (targetInput.type === 'password') {
+                        targetInput.type = 'text';
+                        if (icon) icon.setAttribute('data-lucide', 'eye-off');
+                    } else {
+                        targetInput.type = 'password';
+                        if (icon) icon.setAttribute('data-lucide', 'eye');
+                    }
+                    safeCreateIcons();
+                }
+            });
         });
-    });
+    }
 
     // Modal Actions
-    elements.btnSettingsToggle.addEventListener('click', () => {
-        loadSavedKeys();
-        elements.settingsModal.classList.remove('hidden');
-    });
-
-    elements.btnSettingsClose.addEventListener('click', () => {
-        elements.settingsModal.classList.add('hidden');
-    });
-
-    elements.btnSettingsSave.addEventListener('click', () => {
-        localStorage.setItem('gemini_api_key', elements.geminiApiKey.value.trim());
-        checkApiKeyConfigured();
-        elements.settingsModal.classList.add('hidden');
-    });
-
-    // Close modal when clicking outside content
-    elements.settingsModal.addEventListener('click', (e) => {
-        if (e.target === elements.settingsModal) {
-            elements.settingsModal.classList.add('hidden');
-        }
-    });
-
-    // ---------------------------------------------------------
-    // 3. Navigation Tabs
-    // ---------------------------------------------------------
-    elements.tabBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            const targetTab = btn.getAttribute('data-tab');
-            
-            elements.tabBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            
-            elements.tabPanes.forEach(pane => pane.classList.remove('active'));
-            document.getElementById(targetTab).classList.add('active');
-            
-            if (targetTab !== 'tab-record' && mediaRecorder && mediaRecorder.state !== 'inactive') {
-                stopRecording();
-            }
-            
-            updateProcessButtonState();
+    if (elements.btnSettingsToggle) {
+        elements.btnSettingsToggle.addEventListener('click', () => {
+            loadSavedKeys();
+            if (elements.settingsModal) elements.settingsModal.classList.remove('hidden');
         });
-    });
+    }
+
+    if (elements.btnSettingsClose) {
+        elements.btnSettingsClose.addEventListener('click', () => {
+            if (elements.settingsModal) elements.settingsModal.classList.add('hidden');
+        });
+    }
+
+    if (elements.btnSettingsSave) {
+        elements.btnSettingsSave.addEventListener('click', () => {
+            if (elements.geminiApiKey) {
+                localStorage.setItem('gemini_api_key', elements.geminiApiKey.value.trim());
+            }
+            checkApiKeyConfigured();
+            if (elements.settingsModal) elements.settingsModal.classList.add('hidden');
+        });
+    }
+
+    if (elements.settingsModal) {
+        elements.settingsModal.addEventListener('click', (e) => {
+            if (e.target === elements.settingsModal) {
+                elements.settingsModal.classList.add('hidden');
+            }
+        });
+    }
+
+    // ---------------------------------------------------------
+    // 4. Navigation Tabs
+    // ---------------------------------------------------------
+    if (elements.tabBtns) {
+        elements.tabBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const targetTab = btn.getAttribute('data-tab');
+                
+                elements.tabBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                elements.tabPanes.forEach(pane => pane.classList.remove('active'));
+                const targetPane = document.getElementById(targetTab);
+                if (targetPane) targetPane.classList.add('active');
+                
+                if (targetTab !== 'tab-record' && mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    stopRecording();
+                }
+                
+                updateProcessButtonState();
+            });
+        });
+    }
 
     // Output Result Tabs
-    elements.resultTabBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            const targetPane = btn.getAttribute('data-result-tab');
-            
-            elements.resultTabBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            
-            elements.resultPanes.forEach(p => p.classList.remove('active'));
-            document.getElementById(targetPane).classList.add('active');
+    if (elements.resultTabBtns) {
+        elements.resultTabBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const targetPane = btn.getAttribute('data-result-tab');
+                
+                elements.resultTabBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                elements.resultPanes.forEach(p => p.classList.remove('active'));
+                const pane = document.getElementById(targetPane);
+                if (pane) pane.classList.add('active');
+            });
         });
-    });
+    }
 
     // ---------------------------------------------------------
-    // 4. Input State & UI updates
+    // 5. Input State & UI updates
     // ---------------------------------------------------------
     function updateProcessButtonState() {
-        const activeTab = document.querySelector('.tab-btn.active').getAttribute('data-tab');
+        const activeTabEl = document.querySelector('.tab-btn.active');
+        if (!activeTabEl) return;
+        const activeTab = activeTabEl.getAttribute('data-tab');
         let hasInput = false;
         
         if (activeTab === 'tab-record') {
@@ -193,11 +250,13 @@ document.addEventListener('DOMContentLoaded', () => {
             hasInput = selectedFile !== null;
         }
         
-        elements.btnProcess.disabled = !hasInput;
+        if (elements.btnProcess) {
+            elements.btnProcess.disabled = !hasInput;
+        }
     }
 
     // ---------------------------------------------------------
-    // 5. Microphone Recording (Web Audio API)
+    // 6. Microphone Recording (Web Audio API)
     // ---------------------------------------------------------
     async function startRecording() {
         audioChunks = [];
@@ -236,7 +295,9 @@ document.addEventListener('DOMContentLoaded', () => {
             
             mediaRecorder.onstop = () => {
                 audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/wav' });
-                elements.recorderStatus.innerText = `録音が完了しました (ファイルサイズ: ${(audioBlob.size / 1024 / 1024).toFixed(2)} MB)`;
+                if (elements.recorderStatus) {
+                    elements.recorderStatus.innerText = `録音が完了しました (ファイルサイズ: ${(audioBlob.size / 1024 / 1024).toFixed(2)} MB)`;
+                }
                 
                 if (streamRef) {
                     streamRef.getTracks().forEach(track => track.stop());
@@ -244,24 +305,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 cancelAnimationFrame(visualizerAnimId);
                 clearCanvas();
                 
-                elements.visualizerPulse.classList.remove('recording');
-                elements.btnRecordStart.classList.remove('hidden');
-                elements.btnRecordPause.classList.add('hidden');
-                elements.btnRecordStop.classList.add('hidden');
+                if (elements.visualizerPulse) elements.visualizerPulse.classList.remove('recording');
+                if (elements.btnRecordStart) elements.btnRecordStart.classList.remove('hidden');
+                if (elements.btnRecordPause) elements.btnRecordPause.classList.add('hidden');
+                if (elements.btnRecordStop) elements.btnRecordStop.classList.add('hidden');
                 
                 updateProcessButtonState();
             };
             
             mediaRecorder.start(1000);
-            elements.visualizerPulse.classList.add('recording');
+            if (elements.visualizerPulse) elements.visualizerPulse.classList.add('recording');
             
             recordSeconds = 0;
             updateTimerDisplay();
-            elements.recorderStatus.innerText = '録音中...';
+            if (elements.recorderStatus) elements.recorderStatus.innerText = '録音中...';
             
-            elements.btnRecordStart.classList.add('hidden');
-            elements.btnRecordPause.classList.remove('hidden');
-            elements.btnRecordStop.classList.remove('hidden');
+            if (elements.btnRecordStart) elements.btnRecordStart.classList.add('hidden');
+            if (elements.btnRecordPause) elements.btnRecordPause.classList.remove('hidden');
+            if (elements.btnRecordStop) elements.btnRecordStop.classList.remove('hidden');
             
             recordTimerInterval = setInterval(() => {
                 recordSeconds++;
@@ -270,7 +331,9 @@ document.addEventListener('DOMContentLoaded', () => {
             
         } catch (err) {
             console.error('マイクのアクセスに失敗しました:', err);
-            elements.recorderStatus.innerText = 'マイクの使用許可がないか、接続エラーが発生しました。';
+            if (elements.recorderStatus) {
+                elements.recorderStatus.innerText = 'マイクの使用許可がないか、接続エラーが発生しました。';
+            }
             alert('マイクへのアクセスを許可してください。スマホの設定またはブラウザのアドレスバー横の鍵アイコンから変更できます。');
         }
     }
@@ -279,16 +342,22 @@ document.addEventListener('DOMContentLoaded', () => {
         if (mediaRecorder && mediaRecorder.state === 'recording') {
             mediaRecorder.pause();
             clearInterval(recordTimerInterval);
-            elements.recorderStatus.innerText = '録音を一時停止中';
-            elements.btnRecordPause.querySelector('i').setAttribute('data-lucide', 'play');
-            elements.visualizerPulse.classList.remove('recording');
-            lucide.createImages();
+            if (elements.recorderStatus) elements.recorderStatus.innerText = '録音を一時停止中';
+            if (elements.btnRecordPause) {
+                const icon = elements.btnRecordPause.querySelector('i');
+                if (icon) icon.setAttribute('data-lucide', 'play');
+            }
+            if (elements.visualizerPulse) elements.visualizerPulse.classList.remove('recording');
+            safeCreateIcons();
         } else if (mediaRecorder && mediaRecorder.state === 'paused') {
             mediaRecorder.resume();
-            elements.recorderStatus.innerText = '録音中...';
-            elements.btnRecordPause.querySelector('i').setAttribute('data-lucide', 'pause');
-            elements.visualizerPulse.classList.add('recording');
-            lucide.createImages();
+            if (elements.recorderStatus) elements.recorderStatus.innerText = '録音中...';
+            if (elements.btnRecordPause) {
+                const icon = elements.btnRecordPause.querySelector('i');
+                if (icon) icon.setAttribute('data-lucide', 'pause');
+            }
+            if (elements.visualizerPulse) elements.visualizerPulse.classList.add('recording');
+            safeCreateIcons();
             
             recordTimerInterval = setInterval(() => {
                 recordSeconds++;
@@ -307,106 +376,120 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateTimerDisplay() {
         const mins = Math.floor(recordSeconds / 60).toString().padStart(2, '0');
         const secs = (recordSeconds % 60).toString().padStart(2, '0');
-        elements.timerDisplay.innerText = `${mins}:${secs}`;
+        if (elements.timerDisplay) {
+            elements.timerDisplay.innerText = `${mins}:${secs}`;
+        }
     }
 
     // ---------------------------------------------------------
-    // 6. Audio Visualizer (Canvas Rendering)
+    // 7. Audio Visualizer (Canvas Rendering)
     // ---------------------------------------------------------
     function setupVisualizer(stream) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        analyser = audioCtx.createAnalyser();
-        sourceNode = audioCtx.createMediaStreamSource(stream);
-        sourceNode.connect(analyser);
-        
-        analyser.fftSize = 256;
-        const bufferLength = analyser.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
-        
-        const canvas = elements.visualizerCanvas;
-        const canvasCtx = canvas.getContext('2d');
-        
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-        
-        function draw() {
-            visualizerAnimId = requestAnimationFrame(draw);
-            analyser.getByteFrequencyData(dataArray);
+        if (!elements.visualizerCanvas) return;
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioCtx.createAnalyser();
+            sourceNode = audioCtx.createMediaStreamSource(stream);
+            sourceNode.connect(analyser);
             
-            canvasCtx.fillStyle = 'rgba(9, 13, 22, 0.2)';
-            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+            analyser.fftSize = 256;
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
             
-            const barWidth = (canvas.width / bufferLength) * 1.5;
-            let barHeight;
-            let x = 0;
+            const canvas = elements.visualizerCanvas;
+            const canvasCtx = canvas.getContext('2d');
             
-            for(let i = 0; i < bufferLength; i++) {
-                barHeight = dataArray[i] * 0.45;
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            
+            function draw() {
+                visualizerAnimId = requestAnimationFrame(draw);
+                analyser.getByteFrequencyData(dataArray);
                 
-                const grad = canvasCtx.createLinearGradient(0, canvas.height, 0, 0);
-                grad.addColorStop(0, '#3b82f6');
-                grad.addColorStop(0.5, '#8b5cf6');
-                grad.addColorStop(1, '#d946ef');
+                canvasCtx.fillStyle = 'rgba(9, 13, 22, 0.2)';
+                canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
                 
-                canvasCtx.fillStyle = grad;
-                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
+                const barWidth = (canvas.width / bufferLength) * 1.5;
+                let barHeight;
+                let x = 0;
                 
-                x += barWidth;
+                for(let i = 0; i < bufferLength; i++) {
+                    barHeight = dataArray[i] * 0.45;
+                    
+                    const grad = canvasCtx.createLinearGradient(0, canvas.height, 0, 0);
+                    grad.addColorStop(0, '#3b82f6');
+                    grad.addColorStop(0.5, '#8b5cf6');
+                    grad.addColorStop(1, '#d946ef');
+                    
+                    canvasCtx.fillStyle = grad;
+                    canvasCtx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
+                    
+                    x += barWidth;
+                }
             }
+            
+            draw();
+        } catch (e) {
+            console.warn("ビジュアライザーの初期化に失敗しました:", e);
         }
-        
-        draw();
     }
 
     function clearCanvas() {
+        if (!elements.visualizerCanvas) return;
         const canvas = elements.visualizerCanvas;
         const canvasCtx = canvas.getContext('2d');
-        canvasCtx.fillStyle = '#090d16';
-        canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+        if (canvasCtx) {
+            canvasCtx.fillStyle = '#090d16';
+            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+        }
     }
 
-    elements.btnRecordStart.addEventListener('click', startRecording);
-    elements.btnRecordPause.addEventListener('click', pauseRecording);
-    elements.btnRecordStop.addEventListener('click', stopRecording);
+    if (elements.btnRecordStart) elements.btnRecordStart.addEventListener('click', startRecording);
+    if (elements.btnRecordPause) elements.btnRecordPause.addEventListener('click', pauseRecording);
+    if (elements.btnRecordStop) elements.btnRecordStop.addEventListener('click', stopRecording);
 
     // ---------------------------------------------------------
-    // 7. File Upload (Drag & Drop)
+    // 8. File Upload (Drag & Drop)
     // ---------------------------------------------------------
-    const preventDefaults = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-    };
+    if (elements.dropZone) {
+        const preventDefaults = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        };
 
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        elements.dropZone.addEventListener(eventName, preventDefaults, false);
-    });
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            elements.dropZone.addEventListener(eventName, preventDefaults, false);
+        });
 
-    ['dragenter', 'dragover'].forEach(eventName => {
-        elements.dropZone.addEventListener(eventName, () => elements.dropZone.classList.add('dragover'), false);
-    });
+        ['dragenter', 'dragover'].forEach(eventName => {
+            elements.dropZone.addEventListener(eventName, () => elements.dropZone.classList.add('dragover'), false);
+        });
 
-    ['dragleave', 'drop'].forEach(eventName => {
-        elements.dropZone.addEventListener(eventName, () => elements.dropZone.classList.remove('dragover'), false);
-    });
+        ['dragleave', 'drop'].forEach(eventName => {
+            elements.dropZone.addEventListener(eventName, () => elements.dropZone.classList.remove('dragover'), false);
+        });
 
-    elements.dropZone.addEventListener('drop', (e) => {
-        const dt = e.dataTransfer;
-        const files = dt.files;
-        if (files.length > 0) {
-            handleSelectedFile(files[0]);
-        }
-    });
+        elements.dropZone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0) {
+                handleSelectedFile(files[0]);
+            }
+        });
 
-    elements.dropZone.addEventListener('click', () => {
-        elements.audioFileInput.click();
-    });
+        elements.dropZone.addEventListener('click', () => {
+            if (elements.audioFileInput) elements.audioFileInput.click();
+        });
+    }
 
-    elements.audioFileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            handleSelectedFile(e.target.files[0]);
-        }
-    });
+    if (elements.audioFileInput) {
+        elements.audioFileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleSelectedFile(e.target.files[0]);
+            }
+        });
+    }
 
     function handleSelectedFile(file) {
         if (!file.type.startsWith('audio/') && !file.name.endsWith('.mp3') && !file.name.endsWith('.m4a') && !file.name.endsWith('.wav') && !file.name.endsWith('.webm')) {
@@ -421,13 +504,24 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         selectedFile = file;
-        elements.selectedFileName.innerText = file.name;
-        elements.selectedFileSize.innerText = `${(file.size / 1024 / 1024).toFixed(2)} MB`;
+        if (elements.selectedFileName) elements.selectedFileName.innerText = file.name;
+        if (elements.selectedFileSize) elements.selectedFileSize.innerText = `${(file.size / 1024 / 1024).toFixed(2)} MB`;
         
-        elements.dropZone.classList.add('hidden');
-        elements.selectedFileInfo.classList.remove('hidden');
+        if (elements.dropZone) elements.dropZone.classList.add('hidden');
+        if (elements.selectedFileInfo) elements.selectedFileInfo.classList.remove('hidden');
         
         updateProcessButtonState();
+    }
+
+    if (elements.btnClearFile) {
+        elements.btnClearFile.addEventListener('click', (e) => {
+            e.stopPropagation();
+            selectedFile = null;
+            if (elements.audioFileInput) elements.audioFileInput.value = '';
+            if (elements.dropZone) elements.dropZone.classList.remove('hidden');
+            if (elements.selectedFileInfo) elements.selectedFileInfo.classList.add('hidden');
+            updateProcessButtonState();
+        });
     }
 
     function fileToBase64(file) {
@@ -443,33 +537,40 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ---------------------------------------------------------
-    // 8. Processing & API Integrations
+    // 9. Processing & API Integrations
     // ---------------------------------------------------------
-    elements.btnProcess.addEventListener('click', async () => {
-        const key = getApiKey();
-        const isDemoMode = key.trim() === '';
-        
-        if (isDemoMode) {
-            const confirmDemo = confirm(
-                "Gemini APIキーが設定されていません。\n" +
-                "代わりに「デモシミュレーションモード」で議事録生成を試しますか？\n" +
-                "（API通信は行わず、自動的に高品質なサンプルの議事録を生成してUIの動きを体験できます。）"
-            );
-            if (!confirmDemo) return;
+    if (elements.btnProcess) {
+        elements.btnProcess.addEventListener('click', async () => {
+            const key = getApiKey();
+            const isDemoMode = key.trim() === '';
             
-            runDemoProcess();
-            return;
-        }
+            if (isDemoMode) {
+                const confirmDemo = confirm(
+                    "Gemini APIキーが設定されていません。\n" +
+                    "代わりに「デモシミュレーションモード」で議事録生成を試しますか？\n" +
+                    "（API通信は行わず、自動的に高品質なサンプルの議事録を生成してUIの動きを体験できます。）"
+                );
+                if (!confirmDemo) return;
+                
+                runDemoProcess();
+                return;
+            }
 
-        runRealProcess(key);
-    });
+            runRealProcess(key);
+        });
+    }
 
     async function runRealProcess(key) {
         showLoading(true, "音声データを読み込んでいます...");
         setProgressBar(10);
         
         let audioFileToUpload = null;
-        const activeTab = document.querySelector('.tab-btn.active').getAttribute('data-tab');
+        const activeTabEl = document.querySelector('.tab-btn.active');
+        if (!activeTabEl) {
+            showLoading(false);
+            return;
+        }
+        const activeTab = activeTabEl.getAttribute('data-tab');
         
         if (activeTab === 'tab-record') {
             if (!audioBlob) {
@@ -521,8 +622,8 @@ document.addEventListener('DOMContentLoaded', () => {
             showLoading(true, "AIが音声を聞いて解析中 (これには数秒〜1分ほどかかります)...");
             setProgressBar(50);
 
-            const template = elements.templateSelect.value;
-            const customIns = elements.customInstruction.value.trim();
+            const template = elements.templateSelect ? elements.templateSelect.value : 'standard';
+            const customIns = elements.customInstruction ? elements.customInstruction.value.trim() : '';
             const prompt = buildPrompt(template, customIns);
 
             const payload = {
@@ -613,7 +714,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
         } catch (error) {
             console.error("処理エラー詳細:", error);
-            if (!elements.summaryRendered.classList.contains('error-style-display')) {
+            if (elements.summaryRendered && !elements.summaryRendered.classList.contains('error-style-display')) {
                 alert(`エラーが発生しました:\n${error.message}`);
             }
         } finally {
@@ -622,7 +723,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function displayErrorOnScreen(message, status, rawJson) {
-        elements.summaryPlaceholder.classList.add('hidden');
+        if (!elements.summaryRendered) return;
+        
+        if (elements.summaryPlaceholder) elements.summaryPlaceholder.classList.add('hidden');
         elements.summaryRendered.classList.remove('hidden');
         elements.summaryRendered.classList.add('error-style-display');
         
@@ -641,18 +744,19 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
         `;
         
-        elements.transcriptPlaceholder.classList.add('hidden');
-        elements.transcriptRaw.classList.remove('hidden');
-        elements.transcriptRaw.value = `エラーが発生したため、文字起こしテキストは生成されませんでした。\nステータス: ${status}\nエラー内容: ${message}`;
-        
-        elements.btnCopy.disabled = true;
-        elements.btnDownload.disabled = true;
-        
-        // lucide.createImages の呼び出し前に、安全のためグローバルに存在するかチェック
-        if (window.lucide && typeof window.lucide.createImages === 'function') {
-            window.lucide.createImages();
+        if (elements.transcriptPlaceholder) elements.transcriptPlaceholder.classList.add('hidden');
+        if (elements.transcriptRaw) {
+            elements.transcriptRaw.classList.remove('hidden');
+            elements.transcriptRaw.value = `エラーが発生したため、文字起こしテキストは生成されませんでした。\nステータス: ${status}\nエラー内容: ${message}`;
         }
-        elements.resultTabBtns[0].click();
+        
+        if (elements.btnCopy) elements.btnCopy.disabled = true;
+        if (elements.btnDownload) elements.btnDownload.disabled = true;
+        
+        safeCreateIcons();
+        if (elements.resultTabBtns && elements.resultTabBtns[0]) {
+            elements.resultTabBtns[0].click();
+        }
     }
 
     function runDemoProcess() {
@@ -693,7 +797,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         "- **課題**: iOS Safariでマイク録音時に音声が取得できないバグが発生。\n" +
                         "- **解決策**: iOS特有の `AudioContext` の制約であるため、佐藤氏が鈴木氏と午後から共同でコードレビュー及び修正作業を行い、バグを解決する。\n\n" +
                         "## 4. アクションアイテム (ToDo)\n" +
-                        "- [ ] iOS Safariマイクバグ of 修正 / 担当: 鈴木・佐藤 / 期限: 本日中\n" +
+                        "- [ ] iOS Safariマイクバグの修正 / 担当: 鈴木・佐藤 / 期限: 本日中\n" +
                         "- [ ] テスト環境へのデプロイ作業 / 担当: 鈴木 / 期限: 5月30日 (月)\n\n" +
                         "## 5. 次回予定\n" +
                         "- **次回ミーティング**: 来週水曜日";
@@ -763,75 +867,105 @@ ${customBlock}
 
     // Display Output
     function displayResults(transcript, summary) {
+        if (!elements.summaryRendered) return;
+        
         elements.summaryRendered.classList.remove('error-style-display');
-        elements.summaryPlaceholder.classList.add('hidden');
+        if (elements.summaryPlaceholder) elements.summaryPlaceholder.classList.add('hidden');
         elements.summaryRendered.classList.remove('hidden');
         
-        elements.transcriptPlaceholder.classList.add('hidden');
-        elements.transcriptRaw.classList.remove('hidden');
+        if (elements.transcriptPlaceholder) elements.transcriptPlaceholder.classList.add('hidden');
+        if (elements.transcriptRaw) {
+            elements.transcriptRaw.classList.remove('hidden');
+            elements.transcriptRaw.value = transcript;
+        }
 
-        elements.summaryRendered.innerHTML = marked.parse(summary);
-        elements.transcriptRaw.value = transcript;
+        try {
+            if (window.marked && typeof window.marked.parse === 'function') {
+                elements.summaryRendered.innerHTML = window.marked.parse(summary);
+            } else {
+                elements.summaryRendered.innerText = summary;
+            }
+        } catch (e) {
+            elements.summaryRendered.innerText = summary;
+        }
 
-        elements.btnCopy.disabled = false;
-        elements.btnDownload.disabled = false;
+        if (elements.btnCopy) elements.btnCopy.disabled = false;
+        if (elements.btnDownload) elements.btnDownload.disabled = false;
         
-        elements.resultTabBtns[0].click();
+        if (elements.resultTabBtns && elements.resultTabBtns[0]) {
+            elements.resultTabBtns[0].click();
+        }
     }
 
-    elements.btnCopy.addEventListener('click', () => {
-        const activeTab = document.querySelector('.result-tab-btn.active').getAttribute('data-result-tab');
-        let textToCopy = "";
-        
-        if (activeTab === 'tab-summary') {
-            textToCopy = elements.summaryRendered.innerText;
-        } else {
-            textToCopy = elements.transcriptRaw.value;
-        }
+    if (elements.btnCopy) {
+        elements.btnCopy.addEventListener('click', () => {
+            const activeTabEl = document.querySelector('.result-tab-btn.active');
+            if (!activeTabEl) return;
+            const activeTab = activeTabEl.getAttribute('data-result-tab');
+            let textToCopy = "";
+            
+            if (activeTab === 'tab-summary') {
+                textToCopy = elements.summaryRendered ? elements.summaryRendered.innerText : '';
+            } else {
+                textToCopy = elements.transcriptRaw ? elements.transcriptRaw.value : '';
+            }
 
-        navigator.clipboard.writeText(textToCopy)
-            .then(() => {
-                const originalText = elements.btnCopy.innerHTML;
-                elements.btnCopy.innerHTML = '<i data-lucide="check"></i> コピーしました';
-                lucide.createImages();
-                setTimeout(() => {
-                    elements.btnCopy.innerHTML = originalText;
-                    lucide.createImages();
-                }, 2000);
-            })
-            .catch(err => {
-                console.error("コピー失敗:", err);
-                alert("コピーに失敗しました。");
-            });
-    });
+            navigator.clipboard.writeText(textToCopy)
+                .then(() => {
+                    const originalText = elements.btnCopy.innerHTML;
+                    elements.btnCopy.innerHTML = '<i data-lucide="check"></i> コピーしました';
+                    safeCreateIcons();
+                    setTimeout(() => {
+                        elements.btnCopy.innerHTML = originalText;
+                        safeCreateIcons();
+                    }, 2000);
+                })
+                .catch(err => {
+                    console.error("コピー失敗:", err);
+                    alert("コピーに失敗しました。");
+                });
+        });
+    }
 
-    elements.btnDownload.addEventListener('click', () => {
-        const activeTab = document.querySelector('.result-tab-btn.active').getAttribute('data-result-tab');
-        let textContent = "";
-        let filename = "";
+    if (elements.btnDownload) {
+        elements.btnDownload.addEventListener('click', () => {
+            const activeTabEl = document.querySelector('.result-tab-btn.active');
+            if (!activeTabEl) return;
+            const activeTab = activeTabEl.getAttribute('data-result-tab');
+            let textContent = "";
+            let filename = "";
 
-        if (activeTab === 'tab-summary') {
-            textContent = elements.summaryRendered.innerText;
-            filename = `minutes_summary_${new Date().toISOString().slice(0,10)}.md`;
-        } else {
-            textContent = elements.transcriptRaw.value;
-            filename = `transcript_${new Date().toISOString().slice(0,10)}.txt`;
-        }
+            if (activeTab === 'tab-summary') {
+                textContent = elements.summaryRendered ? elements.summaryRendered.innerText : '';
+                filename = `minutes_summary_${new Date().toISOString().slice(0,10)}.md`;
+            } else {
+                textContent = elements.transcriptRaw ? elements.transcriptRaw.value : '';
+                filename = `transcript_${new Date().toISOString().slice(0,10)}.txt`;
+            }
 
-        const blob = new Blob([textContent], { type: "text/plain;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    });
+            try {
+                const blob = new Blob([textContent], { type: "text/plain;charset=utf-8" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                console.error("ダウンロード失敗:", e);
+            }
+        });
+    }
 
     // ---------------------------------------------------------
     // 10. Initialization
     // ---------------------------------------------------------
-    loadSavedKeys();
-    lucide.createImages();
+    try {
+        loadSavedKeys();
+        safeCreateIcons();
+    } catch (initError) {
+        console.error("アプリの初期化に失敗しました:", initError);
+    }
 });
