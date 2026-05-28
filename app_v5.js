@@ -1,5 +1,5 @@
 /* ==========================================================================
-   JavaScript Application Logic: AI Minutes Generator (Gemini-only version - v5.2)
+   JavaScript Application Logic: AI Minutes Generator (Gemini-only version - v5.3)
    ========================================================================== */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -67,6 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
         transcriptRaw: document.getElementById('transcript-raw'),
         btnCopy: document.getElementById('btn-copy'),
         btnDownload: document.getElementById('btn-download'),
+        btnEmail: document.getElementById('btn-email'),
         
         // Settings Modal
         btnSettingsToggle: document.getElementById('btn-settings-toggle'),
@@ -81,7 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. Helper Functions (Defined early to prevent ReferenceErrors)
     // ---------------------------------------------------------
     
-    // 安全にLucideアイコンをレンダリングする関数 (関数名はcreateIconsが正しい)
+    // 安全にLucideアイコンをレンダリングする関数
     function safeCreateIcons() {
         try {
             if (window.lucide && typeof window.lucide.createIcons === 'function') {
@@ -752,6 +753,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (elements.btnCopy) elements.btnCopy.disabled = true;
         if (elements.btnDownload) elements.btnDownload.disabled = true;
+        if (elements.btnEmail) elements.btnEmail.disabled = true;
         
         safeCreateIcons();
         if (elements.resultTabBtns && elements.resultTabBtns[0]) {
@@ -891,6 +893,7 @@ ${customBlock}
 
         if (elements.btnCopy) elements.btnCopy.disabled = false;
         if (elements.btnDownload) elements.btnDownload.disabled = false;
+        if (elements.btnEmail) elements.btnEmail.disabled = false;
         
         if (elements.resultTabBtns && elements.resultTabBtns[0]) {
             elements.resultTabBtns[0].click();
@@ -944,7 +947,10 @@ ${customBlock}
             }
 
             try {
-                const blob = new Blob([textContent], { type: "text/plain;charset=utf-8" });
+                // 文字化け防止のため、UTF-8のBOM(Byte Order Mark)を追加してファイル保存
+                const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+                const blob = new Blob([bom, textContent], { type: "text/plain;charset=utf-8" });
+                
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
@@ -955,6 +961,33 @@ ${customBlock}
                 URL.revokeObjectURL(url);
             } catch (e) {
                 console.error("ダウンロード失敗:", e);
+            }
+        });
+    }
+
+    if (elements.btnEmail) {
+        elements.btnEmail.addEventListener('click', () => {
+            const activeTabEl = document.querySelector('.result-tab-btn.active');
+            if (!activeTabEl) return;
+            const activeTab = activeTabEl.getAttribute('data-result-tab');
+            let textContent = "";
+            let subjectTitle = "会議議事録";
+            
+            if (activeTab === 'tab-summary') {
+                textContent = elements.summaryRendered ? elements.summaryRendered.innerText : '';
+                subjectTitle = "【AI議事録】要約レポート";
+            } else {
+                textContent = elements.transcriptRaw ? elements.transcriptRaw.value : '';
+                subjectTitle = "【AI議事録】文字起こし生テキスト";
+            }
+
+            try {
+                // メール送信処理 (mailtoスキーム)
+                const mailtoUrl = `mailto:?subject=${encodeURIComponent(subjectTitle)}&body=${encodeURIComponent(textContent)}`;
+                window.location.href = mailtoUrl;
+            } catch (e) {
+                console.error("メール起動失敗:", e);
+                alert("メールアプリの起動に失敗しました。お使いの端末に標準メールアプリが設定されているかご確認ください。");
             }
         });
     }
