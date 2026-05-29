@@ -679,34 +679,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error("Gemini から有効な解析結果が得られませんでした。応答フォーマットが想定外です。");
             }
 
-            let transcriptText = "";
+            let transcriptText = "※長時間の会議（120分など）での出力文字数制限によるエラーを防ぐため、文字起こし（会話のテキスト書き出し）の生成はスキップし、議事録の要約生成に特化しています。";
             let summaryMarkdown = "";
 
-            const transcriptStart = fullTextOutput.indexOf("===TRANSCRIPT_START===");
-            const transcriptEnd = fullTextOutput.indexOf("===TRANSCRIPT_END===");
             const summaryStart = fullTextOutput.indexOf("===SUMMARY_START===");
             const summaryEnd = fullTextOutput.indexOf("===SUMMARY_END===");
 
-            if (transcriptStart !== -1 && transcriptEnd !== -1) {
-                transcriptText = fullTextOutput.substring(transcriptStart + "===TRANSCRIPT_START===".length, transcriptEnd).trim();
-            }
-            
             if (summaryStart !== -1 && summaryEnd !== -1) {
                 summaryMarkdown = fullTextOutput.substring(summaryStart + "===SUMMARY_START===".length, summaryEnd).trim();
             }
 
-            if (!transcriptText || !summaryMarkdown) {
+            if (!summaryMarkdown) {
                 console.warn("セパレータの抽出に失敗したため、代替パースを試みます。");
                 
-                const transMatch = fullTextOutput.match(/===TRANSCRIPT_START===([\s\S]*?)===TRANSCRIPT_END===/);
                 const summMatch = fullTextOutput.match(/===SUMMARY_START===([\s\S]*?)===SUMMARY_END===/);
-                
-                if (transMatch) transcriptText = transMatch[1].trim();
-                if (summMatch) summaryMarkdown = summMatch[1].trim();
-                
-                if (!summaryMarkdown) {
+                if (summMatch) {
+                    summaryMarkdown = summMatch[1].trim();
+                } else {
                     summaryMarkdown = fullTextOutput;
-                    transcriptText = "文字起こしの自動分割に失敗しました。詳細な内容は要約結果タブをご確認ください。";
                 }
             }
 
@@ -841,28 +831,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         return `
-あなたは優秀なエグゼクティブアシスタントです。添付された音声ファイルを最初から最後まで注意深く聴いて、以下の「処理1」と「処理2」の両方を実行してください。
+あなたは優秀なエグゼクティブアシスタントです。添付された音声ファイルを最初から最後まで注意深く聴いて、会議の要約・構造化した議事録のみを作成してください。
 
-# 処理1: 音声の文字起こし
-音声内で話されている日本語の会話内容を、一言句漏らさずに正確にテキスト化（文字起こし）してください。話者が聞き取れる場合は、できる限り「山田：〜〜」「鈴木：〜〜」のように話者を特定して記述してください。
-
-# 処理2: 議事録の要約・構造化
-文字起こしした内容を整理し、以下の指示に沿って議事録を作成してください。
+# 議事録の要約・構造化の指示
+以下の指示に沿って議事録を作成してください。
 指示内容：${templateInstruction}
 ${customBlock}
 
 ---
 
 # 重要：出力フォーマットの厳守
-あなたの回答は、システムプログラムによって自動的に「文字起こし」と「要約結果」に分解されて画面に表示されます。
-そのため、必ず以下の【区切り記号】を正確に使用し、指定された枠の中にそれぞれのテキストを出力してください。余計な前置きや挨拶文は出力しないでください。
-
-===TRANSCRIPT_START===
-(ここには「処理1」の最初から保存される完全な文字起こしテキストのみを出力してください)
-===TRANSCRIPT_END===
+あなたの回答は、システムプログラムによって自動的に「要約結果」として画面に表示されます。
+長時間の会議でAPIの出力制限エラー（途中で出力が切れる現象）を避けるため、一言句漏らさない完全な文字起こし（会話のテキスト書き出し）は絶対に出力しないでください。
+必ず以下の【区切り記号】を正確に使用し、指定された枠の中に要約テキストのみを出力してください。余計な前置きや挨拶文は出力しないでください。
 
 ===SUMMARY_START===
-(ここには「処理2」のMarkdown形式で要約された議事録テキストのみを出力してください。見出し、箇条書き、タスクリストなどを活用してください)
+(ここにはMarkdown形式で要約された議事録テキストのみを出力してください。見出し、箇条書き、タスクリストなどを活用してください)
 ===SUMMARY_END===
 `;
     }
