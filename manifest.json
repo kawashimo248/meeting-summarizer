@@ -1,0 +1,16 @@
+{
+  "short_name": "議事録作成",
+  "name": "AI議事録自動作成アプリ",
+  "icons": [
+    {
+      "src": "icon.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "index.html",
+  "background_color": "#090d16",
+  "display": "standalone",
+  "theme_color": "#3b82f6",
+  "orientation": "portrait"
+}
